@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { createScore, tickScore, getScoreValue, ScoreState } from '../core/score';
 
 const WIDTH = 800;
 const GROUND_Y = 350;
@@ -13,6 +14,8 @@ export class GameScene extends Phaser.Scene {
   private player!: PhysicsRect;
   private ground!: Phaser.GameObjects.Rectangle;
   private jumpKey!: Phaser.Input.Keyboard.Key;
+  private scoreState: ScoreState = createScore();
+  private scoreText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
@@ -29,12 +32,20 @@ export class GameScene extends Phaser.Scene {
 
     this.jumpKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.input.on('pointerdown', () => this.jump());
+
+    this.scoreText = this.add.text(16, 16, 'Score: 0', {
+      fontSize: '20px',
+      color: '#000000',
+    });
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     if (Phaser.Input.Keyboard.JustDown(this.jumpKey)) {
       this.jump();
     }
+
+    this.scoreState = tickScore(this.scoreState, delta);
+    this.scoreText.setText(`Score: ${getScoreValue(this.scoreState)}`);
   }
 
   private jump(): void {
