@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
-import { createScore, tickScore, getScoreValue, ScoreState } from '../core/score';
-import { createSpawner, tickSpawner, SpawnerState } from '../core/spawner';
-import { intersects, Rect } from '../core/collision';
+import { createScore, tickScore, getScoreValue } from '../core/score';
+import type { ScoreState } from '../core/score';
+import { createSpawner, tickSpawner } from '../core/spawner';
+import type { SpawnerState } from '../core/spawner';
+import { intersects } from '../core/collision';
+import type { Rect } from '../core/collision';
 
 const WIDTH = 800;
 const HEIGHT = 400;
@@ -21,7 +24,6 @@ type GameState = 'playing' | 'gameOver';
 
 export class GameScene extends Phaser.Scene {
   private player!: PhysicsRect;
-  private ground!: Phaser.GameObjects.Rectangle;
   private jumpKey!: Phaser.Input.Keyboard.Key;
   private obstacles: PhysicsRect[] = [];
   private scoreState: ScoreState = createScore();
@@ -35,13 +37,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.ground = this.add.rectangle(WIDTH / 2, GROUND_Y + GROUND_HEIGHT / 2, WIDTH, GROUND_HEIGHT, 0x654321);
-    this.physics.add.existing(this.ground, true);
+    const ground = this.add.rectangle(WIDTH / 2, GROUND_Y + GROUND_HEIGHT / 2, WIDTH, GROUND_HEIGHT, 0x654321);
+    this.physics.add.existing(ground, true);
 
     this.player = this.physics.add.existing(
       this.add.rectangle(PLAYER_START_X, GROUND_Y - PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE, 0x00ff00)
     ) as PhysicsRect;
-    this.physics.add.collider(this.player, this.ground);
+    this.physics.add.collider(this.player, ground);
 
     this.jumpKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.input.on('pointerdown', () => this.handleAction());
@@ -77,9 +79,6 @@ export class GameScene extends Phaser.Scene {
       this.spawnObstacle();
     }
 
-    for (const obstacle of this.obstacles) {
-      obstacle.body.setVelocityX(-OBSTACLE_SPEED);
-    }
     this.obstacles = this.obstacles.filter((obstacle) => {
       if (obstacle.x < -OBSTACLE_WIDTH) {
         obstacle.destroy();
@@ -123,6 +122,7 @@ export class GameScene extends Phaser.Scene {
       )
     ) as PhysicsRect;
     obstacle.body.setAllowGravity(false);
+    obstacle.body.setVelocityX(-OBSTACLE_SPEED);
     this.obstacles.push(obstacle);
   }
 
@@ -137,10 +137,7 @@ export class GameScene extends Phaser.Scene {
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
-    this.player.body.setVelocity(0, 0);
-    for (const obstacle of this.obstacles) {
-      obstacle.body.setVelocityX(0);
-    }
+    this.physics.pause();
     this.gameOverText.setText(
       `Game Over\nScore: ${getScoreValue(this.scoreState)}\nTap to Restart`
     );
@@ -158,5 +155,6 @@ export class GameScene extends Phaser.Scene {
     this.obstacles = [];
     this.player.setPosition(PLAYER_START_X, GROUND_Y - PLAYER_SIZE / 2);
     this.player.body.setVelocity(0, 0);
+    this.physics.resume();
   }
 }
