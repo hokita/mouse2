@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { createScore, tickScore, getScoreValue, ScoreState } from '../core/score';
 import { createSpawner, tickSpawner, SpawnerState } from '../core/spawner';
+import { intersects, Rect } from '../core/collision';
 
 const WIDTH = 800;
 const GROUND_Y = 350;
@@ -15,6 +16,7 @@ const MIN_SPAWN_INTERVAL_MS = 800;
 const MAX_SPAWN_INTERVAL_MS = 1800;
 
 type PhysicsRect = Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.Body };
+type GameState = 'playing' | 'gameOver';
 
 export class GameScene extends Phaser.Scene {
   private player!: PhysicsRect;
@@ -24,6 +26,7 @@ export class GameScene extends Phaser.Scene {
   private scoreState: ScoreState = createScore();
   private spawnerState: SpawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
   private scoreText!: Phaser.GameObjects.Text;
+  private state: GameState = 'playing';
 
   constructor() {
     super('GameScene');
@@ -52,6 +55,10 @@ export class GameScene extends Phaser.Scene {
       this.jump();
     }
 
+    if (this.state !== 'playing') {
+      return;
+    }
+
     this.scoreState = tickScore(this.scoreState, delta);
     this.scoreText.setText(`Score: ${getScoreValue(this.scoreState)}`);
 
@@ -71,9 +78,20 @@ export class GameScene extends Phaser.Scene {
       }
       return true;
     });
+
+    const playerRect = this.toRect(this.player);
+    for (const obstacle of this.obstacles) {
+      if (intersects(playerRect, this.toRect(obstacle))) {
+        this.triggerGameOver();
+        break;
+      }
+    }
   }
 
   private jump(): void {
+    if (this.state !== 'playing') {
+      return;
+    }
     const body = this.player.body;
     if (body.blocked.down || body.touching.down) {
       body.setVelocityY(JUMP_VELOCITY);
@@ -92,5 +110,22 @@ export class GameScene extends Phaser.Scene {
     ) as PhysicsRect;
     obstacle.body.setAllowGravity(false);
     this.obstacles.push(obstacle);
+  }
+
+  private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
+    return {
+      x: obj.x - obj.width / 2,
+      y: obj.y - obj.height / 2,
+      width: obj.width,
+      height: obj.height,
+    };
+  }
+
+  private triggerGameOver(): void {
+    this.state = 'gameOver';
+    this.player.body.setVelocity(0, 0);
+    for (const obstacle of this.obstacles) {
+      obstacle.body.setVelocityX(0);
+    }
   }
 }
