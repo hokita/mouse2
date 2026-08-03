@@ -4,6 +4,7 @@ import { createSpawner, tickSpawner, SpawnerState } from '../core/spawner';
 import { intersects, Rect } from '../core/collision';
 
 const WIDTH = 800;
+const HEIGHT = 400;
 const GROUND_Y = 350;
 const GROUND_HEIGHT = 50;
 const PLAYER_SIZE = 40;
@@ -26,6 +27,7 @@ export class GameScene extends Phaser.Scene {
   private scoreState: ScoreState = createScore();
   private spawnerState: SpawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
   private scoreText!: Phaser.GameObjects.Text;
+  private gameOverText!: Phaser.GameObjects.Text;
   private state: GameState = 'playing';
 
   constructor() {
@@ -42,17 +44,24 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.ground);
 
     this.jumpKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.input.on('pointerdown', () => this.jump());
+    this.input.on('pointerdown', () => this.handleAction());
 
     this.scoreText = this.add.text(16, 16, 'Score: 0', {
       fontSize: '20px',
       color: '#000000',
     });
+
+    this.gameOverText = this.add.text(WIDTH / 2, HEIGHT / 2, '', {
+      fontSize: '28px',
+      color: '#000000',
+      align: 'center',
+    });
+    this.gameOverText.setOrigin(0.5, 0.5);
   }
 
   update(_time: number, delta: number): void {
     if (Phaser.Input.Keyboard.JustDown(this.jumpKey)) {
-      this.jump();
+      this.handleAction();
     }
 
     if (this.state !== 'playing') {
@@ -88,10 +97,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private jump(): void {
-    if (this.state !== 'playing') {
-      return;
+  private handleAction(): void {
+    if (this.state === 'playing') {
+      this.jump();
+    } else {
+      this.restart();
     }
+  }
+
+  private jump(): void {
     const body = this.player.body;
     if (body.blocked.down || body.touching.down) {
       body.setVelocityY(JUMP_VELOCITY);
@@ -127,5 +141,22 @@ export class GameScene extends Phaser.Scene {
     for (const obstacle of this.obstacles) {
       obstacle.body.setVelocityX(0);
     }
+    this.gameOverText.setText(
+      `Game Over\nScore: ${getScoreValue(this.scoreState)}\nTap to Restart`
+    );
+  }
+
+  private restart(): void {
+    this.state = 'playing';
+    this.scoreState = createScore();
+    this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
+    this.scoreText.setText('Score: 0');
+    this.gameOverText.setText('');
+    for (const obstacle of this.obstacles) {
+      obstacle.destroy();
+    }
+    this.obstacles = [];
+    this.player.setPosition(PLAYER_START_X, GROUND_Y - PLAYER_SIZE / 2);
+    this.player.body.setVelocity(0, 0);
   }
 }
