@@ -17,18 +17,22 @@ const OBSTACLE_HEIGHT = 50;
 const OBSTACLE_SPEED = 300;
 const MIN_SPAWN_INTERVAL_MS = 800;
 const MAX_SPAWN_INTERVAL_MS = 1800;
-// Caps how much sim time a single frame can advance, so a stalled/backgrounded
-// tab can't move an obstacle far enough in one step to skip past the player's
-// hitbox and the off-screen cleanup threshold in the same frame.
+// Caps how much sim time a single frame advances score/spawn timing by. This
+// does NOT bound obstacle movement — Arcade Physics moves bodies during its
+// own world step, which runs before this scene's update() and uses Phaser's
+// own (already fps.smoothStep-clamped) delta, not this value. Collision
+// tunneling past a fast-moving obstacle is instead handled by sweptRect()
+// below, which is correct regardless of frame delta.
 const MAX_DELTA_MS = 100;
 
 type PhysicsRect = Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.Body };
+type Obstacle = PhysicsRect & { prevX: number };
 type GameState = 'playing' | 'gameOver';
 
 export class GameScene extends Phaser.Scene {
   private player!: PhysicsRect;
   private jumpKey!: Phaser.Input.Keyboard.Key;
-  private obstacles: PhysicsRect[] = [];
+  private obstacles: Obstacle[] = [];
   private scoreState: ScoreState = createScore();
   private spawnerState: SpawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
   private scoreText!: Phaser.GameObjects.Text;
@@ -84,6 +88,23 @@ export class GameScene extends Phaser.Scene {
       this.spawnObstacle();
     }
 
+    // Collision check runs first, using each obstacle's swept path this frame
+    // (prevX -> current x), so a large single-frame move can't let an
+    // obstacle pass through the player without ever being tested — and
+    // before cleanup, so an obstacle that also crossed the off-screen
+    // threshold this frame is still checked.
+    const playerRect = this.toRect(this.player);
+    for (const obstacle of this.obstacles) {
+      if (intersects(playerRect, this.sweptRect(obstacle))) {
+        this.triggerGameOver();
+        break;
+      }
+    }
+
+    for (const obstacle of this.obstacles) {
+      obstacle.prevX = obstacle.x;
+    }
+
     this.obstacles = this.obstacles.filter((obstacle) => {
       if (obstacle.x < -OBSTACLE_WIDTH) {
         obstacle.destroy();
@@ -91,14 +112,6 @@ export class GameScene extends Phaser.Scene {
       }
       return true;
     });
-
-    const playerRect = this.toRect(this.player);
-    for (const obstacle of this.obstacles) {
-      if (intersects(playerRect, this.toRect(obstacle))) {
-        this.triggerGameOver();
-        break;
-      }
-    }
   }
 
   private handleAction(): void {
@@ -125,9 +138,10 @@ export class GameScene extends Phaser.Scene {
         OBSTACLE_HEIGHT,
         0xff0000
       )
-    ) as PhysicsRect;
+    ) as Obstacle;
     obstacle.body.setAllowGravity(false);
     obstacle.body.setVelocityX(-OBSTACLE_SPEED);
+    obstacle.prevX = obstacle.x;
     this.obstacles.push(obstacle);
   }
 
@@ -138,6 +152,29 @@ export class GameScene extends Phaser.Scene {
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
+    };
+  }
+
+  // Bounds of the horizontal span an obstacle swept through this frame
+  // (from its position at the start of the frame to its position now),
+  // so a large single-frame move can't tunnel through the player's hitbox
+  // without ever overlapping it on a sampled frame. Only x is swept —
+  // obstacles never move vertically (gravity is disabled on them).
+  private sweptRect(obstacle: Obstacle): Rect {
+    const currentX = obstacle.x;
+    obstacle.x = obstacle.prevX;
+    const prevBounds = obstacle.getBounds();
+    obstacle.x = currentX;
+    const currentBounds = obstacle.getBounds();
+
+    const left = Math.min(prevBounds.x, currentBounds.x);
+    const right = Math.max(prevBounds.x + prevBounds.width, currentBounds.x + currentBounds.width);
+
+    return {
+      x: left,
+      y: currentBounds.y,
+      width: right - left,
+      height: currentBounds.height,
     };
   }
 
