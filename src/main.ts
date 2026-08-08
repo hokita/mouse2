@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GameScene } from './scenes/GameScene';
 import { WIDTH, HEIGHT } from './gameConfig';
+import { isPortrait } from './core/orientation';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -21,4 +22,21 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [GameScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+const rotateOverlay = document.getElementById('rotate-overlay')!;
+
+function updateOrientation(): void {
+  const portrait = isPortrait(window.innerWidth, window.innerHeight);
+  rotateOverlay.classList.toggle('visible', portrait);
+  if (portrait) {
+    game.scene.pause('GameScene');
+  } else {
+    game.scene.resume('GameScene');
+  }
+}
+
+game.events.once(Phaser.Core.Events.READY, () => {
+  updateOrientation();
+  window.addEventListener('resize', updateOrientation);
+  window.addEventListener('orientationchange', updateOrientation);
+});
