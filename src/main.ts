@@ -24,9 +24,14 @@ const config: Phaser.Types.Core.GameConfig = {
 
 const game = new Phaser.Game(config);
 const rotateOverlay = document.getElementById('rotate-overlay')!;
+let lastPortrait: boolean | null = null;
 
 function updateOrientation(): void {
   const portrait = isPortrait(window.innerWidth, window.innerHeight);
+  if (portrait === lastPortrait) {
+    return;
+  }
+  lastPortrait = portrait;
   rotateOverlay.classList.toggle('visible', portrait);
   if (portrait) {
     game.scene.pause('GameScene');
