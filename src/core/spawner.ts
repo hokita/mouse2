@@ -32,7 +32,7 @@ export function tickSpawner(
     return {
       state: {
         ...state,
-        timer: 0,
+        timer: timer - state.nextInterval,
         nextInterval: randomInterval(state.minInterval, state.maxInterval, random),
       },
       shouldSpawn: true,

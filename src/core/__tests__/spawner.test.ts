@@ -16,11 +16,18 @@ describe('spawner', () => {
     expect(result.shouldSpawn).toBe(true);
   });
 
-  it('resets the timer after spawning', () => {
+  it('carries the overflow time forward after spawning, instead of discarding it', () => {
     const state = createSpawner(500, 500);
     const result = tickSpawner(state, 600);
     expect(result.shouldSpawn).toBe(true);
-    expect(result.state.timer).toBe(0);
+    expect(result.state.timer).toBe(100);
+  });
+
+  it('carries forward a large overflow from a single big delta tick', () => {
+    const state = createSpawner(500, 500);
+    const result = tickSpawner(state, 1300);
+    expect(result.shouldSpawn).toBe(true);
+    expect(result.state.timer).toBe(800);
   });
 
   it('picks the minimum interval when random() returns 0', () => {

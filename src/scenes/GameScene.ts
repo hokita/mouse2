@@ -5,9 +5,8 @@ import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { intersects } from '../core/collision';
 import type { Rect } from '../core/collision';
+import { WIDTH, HEIGHT } from '../gameConfig';
 
-const WIDTH = 800;
-const HEIGHT = 400;
 const GROUND_Y = 350;
 const GROUND_HEIGHT = 50;
 const PLAYER_SIZE = 40;
@@ -18,6 +17,10 @@ const OBSTACLE_HEIGHT = 50;
 const OBSTACLE_SPEED = 300;
 const MIN_SPAWN_INTERVAL_MS = 800;
 const MAX_SPAWN_INTERVAL_MS = 1800;
+// Caps how much sim time a single frame can advance, so a stalled/backgrounded
+// tab can't move an obstacle far enough in one step to skip past the player's
+// hitbox and the off-screen cleanup threshold in the same frame.
+const MAX_DELTA_MS = 100;
 
 type PhysicsRect = Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.Body };
 type GameState = 'playing' | 'gameOver';
@@ -70,10 +73,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.scoreState = tickScore(this.scoreState, delta);
+    const safeDelta = Math.min(delta, MAX_DELTA_MS);
+
+    this.scoreState = tickScore(this.scoreState, safeDelta);
     this.scoreText.setText(`Score: ${getScoreValue(this.scoreState)}`);
 
-    const spawnResult = tickSpawner(this.spawnerState, delta);
+    const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
     if (spawnResult.shouldSpawn) {
       this.spawnObstacle();
@@ -127,11 +132,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
+    const bounds = obj.getBounds();
     return {
-      x: obj.x - obj.width / 2,
-      y: obj.y - obj.height / 2,
-      width: obj.width,
-      height: obj.height,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
     };
   }
 
