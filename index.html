@@ -13,10 +13,43 @@
         touch-action: none;
         background: #000;
       }
+
+      #rotate-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        color: #fff;
+        font-family: sans-serif;
+        text-align: center;
+      }
+
+      #rotate-overlay.visible {
+        display: flex;
+      }
+
+      .rotate-overlay__icon {
+        font-size: 64px;
+        margin-bottom: 16px;
+      }
+
+      .rotate-overlay__message {
+        font-size: 20px;
+        margin: 0;
+        padding: 0 24px;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="rotate-overlay">
+      <div class="rotate-overlay__icon">&#8635;</div>
+      <p class="rotate-overlay__message">Rotate your device to play</p>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
