@@ -9,6 +9,7 @@ on:
       - 'index.html'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - 'vite.config.ts'
       - 'tsconfig.json'
       - 'firebase.json'
@@ -16,8 +17,13 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-hosting
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     permissions:
