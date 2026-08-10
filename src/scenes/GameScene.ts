@@ -19,13 +19,18 @@ const MAX_SPAWN_INTERVAL_MS = 1800;
 // timing by. At the cap, an obstacle falls OBSTACLE_SPEED * (MAX_DELTA_MS /
 // 1000) = 30px in one step — well under the player/obstacle size, so a long
 // stalled frame (e.g. a backgrounded tab) can't let an obstacle skip past
-// the player without ever overlapping it.
+// the player without ever overlapping it. This bound only holds while
+// OBSTACLE_SPEED * (MAX_DELTA_MS / 1000) <= PLAYER_SIZE + OBSTACLE_HEIGHT
+// (currently 30 <= 90, i.e. safe up to OBSTACLE_SPEED = 900) — revisit this
+// comment and MAX_DELTA_MS together if OBSTACLE_SPEED ever increases (e.g.
+// a difficulty ramp).
 const MAX_DELTA_MS = 100;
 
 type GameState = 'playing' | 'gameOver';
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Rectangle;
+  private prevPlayerX = WIDTH / 2;
   private obstacles: Phaser.GameObjects.Rectangle[] = [];
   private scoreState: ScoreState = createScore();
   private spawnerState: SpawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
@@ -80,13 +85,14 @@ export class GameScene extends Phaser.Scene {
       obstacle.y += fallDistance;
     }
 
-    const playerRect = this.toRect(this.player);
+    const playerRect = this.playerSweptRect();
     for (const obstacle of this.obstacles) {
       if (intersects(playerRect, this.toRect(obstacle))) {
         this.triggerGameOver();
         break;
       }
     }
+    this.prevPlayerX = this.player.x;
 
     this.obstacles = this.obstacles.filter((obstacle) => {
       if (obstacle.y > HEIGHT + OBSTACLE_HEIGHT) {
@@ -134,6 +140,30 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  // Bounds of the horizontal span the player crossed this frame (from its
+  // position at the end of the previous frame to its current position),
+  // so a single fast drag/tap that jumps the player's x — pointer events
+  // move it instantly, independent of update()'s per-frame delta — can't
+  // pass through an obstacle without ever overlapping it on a sampled
+  // frame. Only x is swept — the player never moves vertically.
+  private playerSweptRect(): Rect {
+    const currentX = this.player.x;
+    this.player.x = this.prevPlayerX;
+    const prevBounds = this.player.getBounds();
+    this.player.x = currentX;
+    const currentBounds = this.player.getBounds();
+
+    const left = Math.min(prevBounds.x, currentBounds.x);
+    const right = Math.max(prevBounds.x + prevBounds.width, currentBounds.x + currentBounds.width);
+
+    return {
+      x: left,
+      y: currentBounds.y,
+      width: right - left,
+      height: currentBounds.height,
+    };
+  }
+
   private triggerGameOver(): void {
     this.state = 'gameOver';
     this.gameOverText.setText(
@@ -152,5 +182,6 @@ export class GameScene extends Phaser.Scene {
     }
     this.obstacles = [];
     this.player.x = WIDTH / 2;
+    this.prevPlayerX = WIDTH / 2;
   }
 }
