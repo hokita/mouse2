@@ -81,16 +81,33 @@ export class GameScene extends Phaser.Scene {
     }
 
     const fallDistance = OBSTACLE_SPEED * (safeDelta / 1000);
+
+    // All of this frame's player movement happens via pointer events fired
+    // before update() runs, while every obstacle was still at its pre-fall
+    // position — so check the player's swept path against where obstacles
+    // WERE, not a blanket union with where they're about to land (which
+    // would report a hit even if the player had already cleared an x
+    // before the obstacle ever fell within reach).
+    const playerSweptRect = this.playerSweptRect();
+    let collided = this.obstacles.some((obstacle) => intersects(playerSweptRect, this.toRect(obstacle)));
+
     for (const obstacle of this.obstacles) {
       obstacle.y += fallDistance;
     }
 
-    const playerRect = this.playerSweptRect();
-    for (const obstacle of this.obstacles) {
-      if (intersects(playerRect, this.obstacleSweptRect(obstacle, fallDistance))) {
-        this.triggerGameOver();
-        break;
-      }
+    // The obstacle's fall happens after the player has already settled at
+    // its final position for this frame (no further movement until the
+    // next pointer event), so check the fall's swept path against the
+    // player's resting position, not its full swept range.
+    if (!collided) {
+      const playerRect = this.toRect(this.player);
+      collided = this.obstacles.some((obstacle) =>
+        intersects(playerRect, this.obstacleSweptRect(obstacle, fallDistance))
+      );
+    }
+
+    if (collided) {
+      this.triggerGameOver();
     }
     this.prevPlayerX = this.player.x;
 
@@ -130,12 +147,24 @@ export class GameScene extends Phaser.Scene {
     this.obstacles.push(obstacle);
   }
 
+  private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
+    const bounds = obj.getBounds();
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    };
+  }
+
   // Bounds of the horizontal span the player crossed this frame (from its
   // position at the end of the previous frame to its current position),
   // so a single fast drag/tap that jumps the player's x — pointer events
   // move it instantly, independent of update()'s per-frame delta — can't
   // pass through an obstacle without ever overlapping it on a sampled
-  // frame. Only x is swept — the player never moves vertically.
+  // frame. Only x is swept — the player never moves vertically. Checked
+  // against each obstacle's PRE-fall position (see update()) since all of
+  // this sweep happened before this frame's fall was applied.
   private playerSweptRect(): Rect {
     const currentX = this.player.x;
     this.player.x = this.prevPlayerX;
@@ -155,13 +184,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   // Bounds of the vertical span an obstacle fell through this frame (from
-  // its position before this frame's fall to its position now). Needed
-  // alongside playerSweptRect(): the player's swept x-range can span the
-  // full width in a single frame (drag input isn't delta-bounded), so an
-  // obstacle that exits the player's vertical band during this same
-  // frame's (small, delta-bounded) fall must still be tested against —
-  // checking only its post-fall position could miss a cross that
-  // happened while it was still in reach. Only y is swept — obstacles
+  // its position before this frame's fall to its position now). Checked
+  // against the player's FINAL (unswept) rect in update(): the obstacle's
+  // fall happens after the player has already settled at its position for
+  // this frame, so there's nothing left of the player's own motion to
+  // sweep at this point — only the obstacle's. Only y is swept — obstacles
   // never move horizontally.
   private obstacleSweptRect(obstacle: Phaser.GameObjects.Rectangle, fallDistance: number): Rect {
     const currentY = obstacle.y;
