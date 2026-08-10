@@ -87,7 +87,7 @@ export class GameScene extends Phaser.Scene {
 
     const playerRect = this.playerSweptRect();
     for (const obstacle of this.obstacles) {
-      if (intersects(playerRect, this.toRect(obstacle))) {
+      if (intersects(playerRect, this.obstacleSweptRect(obstacle, fallDistance))) {
         this.triggerGameOver();
         break;
       }
@@ -130,16 +130,6 @@ export class GameScene extends Phaser.Scene {
     this.obstacles.push(obstacle);
   }
 
-  private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
-    const bounds = obj.getBounds();
-    return {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-    };
-  }
-
   // Bounds of the horizontal span the player crossed this frame (from its
   // position at the end of the previous frame to its current position),
   // so a single fast drag/tap that jumps the player's x — pointer events
@@ -161,6 +151,33 @@ export class GameScene extends Phaser.Scene {
       y: currentBounds.y,
       width: right - left,
       height: currentBounds.height,
+    };
+  }
+
+  // Bounds of the vertical span an obstacle fell through this frame (from
+  // its position before this frame's fall to its position now). Needed
+  // alongside playerSweptRect(): the player's swept x-range can span the
+  // full width in a single frame (drag input isn't delta-bounded), so an
+  // obstacle that exits the player's vertical band during this same
+  // frame's (small, delta-bounded) fall must still be tested against —
+  // checking only its post-fall position could miss a cross that
+  // happened while it was still in reach. Only y is swept — obstacles
+  // never move horizontally.
+  private obstacleSweptRect(obstacle: Phaser.GameObjects.Rectangle, fallDistance: number): Rect {
+    const currentY = obstacle.y;
+    obstacle.y = currentY - fallDistance;
+    const prevBounds = obstacle.getBounds();
+    obstacle.y = currentY;
+    const currentBounds = obstacle.getBounds();
+
+    const top = Math.min(prevBounds.y, currentBounds.y);
+    const bottom = Math.max(prevBounds.y + prevBounds.height, currentBounds.y + currentBounds.height);
+
+    return {
+      x: currentBounds.x,
+      y: top,
+      width: currentBounds.width,
+      height: bottom - top,
     };
   }
 
