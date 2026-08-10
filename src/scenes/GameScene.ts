@@ -7,32 +7,31 @@ import { intersects } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { WIDTH, HEIGHT } from '../gameConfig';
 
-const GROUND_Y = 350;
-const GROUND_HEIGHT = 50;
 const PLAYER_SIZE = 40;
-const PLAYER_START_X = 100;
-const JUMP_VELOCITY = -500;
+const PLAYER_MARGIN_BOTTOM = 120;
+const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
 const OBSTACLE_WIDTH = 30;
 const OBSTACLE_HEIGHT = 50;
 const OBSTACLE_SPEED = 300;
 const MIN_SPAWN_INTERVAL_MS = 800;
 const MAX_SPAWN_INTERVAL_MS = 1800;
-// Caps how much sim time a single frame advances score/spawn timing by. This
-// does NOT bound obstacle movement — Arcade Physics moves bodies during its
-// own world step, which runs before this scene's update() and uses Phaser's
-// own (already fps.smoothStep-clamped) delta, not this value. Collision
-// tunneling past a fast-moving obstacle is instead handled by sweptRect()
-// below, which is correct regardless of frame delta.
+// Caps how much sim time a single frame advances score/spawn/obstacle-fall
+// timing by. At the cap, an obstacle falls OBSTACLE_SPEED * (MAX_DELTA_MS /
+// 1000) = 30px in one step — well under the player/obstacle size, so a long
+// stalled frame (e.g. a backgrounded tab) can't let an obstacle skip past
+// the player without ever overlapping it. This bound only holds while
+// OBSTACLE_SPEED * (MAX_DELTA_MS / 1000) <= PLAYER_SIZE + OBSTACLE_HEIGHT
+// (currently 30 <= 90, i.e. safe up to OBSTACLE_SPEED = 900) — revisit this
+// comment and MAX_DELTA_MS together if OBSTACLE_SPEED ever increases (e.g.
+// a difficulty ramp).
 const MAX_DELTA_MS = 100;
 
-type PhysicsRect = Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.Body };
-type Obstacle = PhysicsRect & { prevX: number };
 type GameState = 'playing' | 'gameOver';
 
 export class GameScene extends Phaser.Scene {
-  private player!: PhysicsRect;
-  private jumpKey!: Phaser.Input.Keyboard.Key;
-  private obstacles: Obstacle[] = [];
+  private player!: Phaser.GameObjects.Rectangle;
+  private prevPlayerX = WIDTH / 2;
+  private obstacles: Phaser.GameObjects.Rectangle[] = [];
   private scoreState: ScoreState = createScore();
   private spawnerState: SpawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
   private scoreText!: Phaser.GameObjects.Text;
@@ -44,16 +43,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    const ground = this.add.rectangle(WIDTH / 2, GROUND_Y + GROUND_HEIGHT / 2, WIDTH, GROUND_HEIGHT, 0x654321);
-    this.physics.add.existing(ground, true);
+    this.player = this.add.rectangle(WIDTH / 2, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE, 0x00ff00);
 
-    this.player = this.physics.add.existing(
-      this.add.rectangle(PLAYER_START_X, GROUND_Y - PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE, 0x00ff00)
-    ) as PhysicsRect;
-    this.physics.add.collider(this.player, ground);
-
-    this.jumpKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.input.on('pointerdown', () => this.handleAction());
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerDown(pointer));
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
 
     this.scoreText = this.add.text(16, 16, 'Score: 0', {
       fontSize: '20px',
@@ -66,13 +59,12 @@ export class GameScene extends Phaser.Scene {
       align: 'center',
     });
     this.gameOverText.setOrigin(0.5, 0.5);
+
+    this.scoreText.setDepth(10);
+    this.gameOverText.setDepth(10);
   }
 
   update(_time: number, delta: number): void {
-    if (Phaser.Input.Keyboard.JustDown(this.jumpKey)) {
-      this.handleAction();
-    }
-
     if (this.state !== 'playing') {
       return;
     }
@@ -88,25 +80,39 @@ export class GameScene extends Phaser.Scene {
       this.spawnObstacle();
     }
 
-    // Collision check runs first, using each obstacle's swept path this frame
-    // (prevX -> current x), so a large single-frame move can't let an
-    // obstacle pass through the player without ever being tested — and
-    // before cleanup, so an obstacle that also crossed the off-screen
-    // threshold this frame is still checked.
-    const playerRect = this.toRect(this.player);
-    for (const obstacle of this.obstacles) {
-      if (intersects(playerRect, this.sweptRect(obstacle))) {
-        this.triggerGameOver();
-        break;
-      }
-    }
+    const fallDistance = OBSTACLE_SPEED * (safeDelta / 1000);
+
+    // All of this frame's player movement happens via pointer events fired
+    // before update() runs, while every obstacle was still at its pre-fall
+    // position — so check the player's swept path against where obstacles
+    // WERE, not a blanket union with where they're about to land (which
+    // would report a hit even if the player had already cleared an x
+    // before the obstacle ever fell within reach).
+    const playerSweptRect = this.playerSweptRect();
+    let collided = this.obstacles.some((obstacle) => intersects(playerSweptRect, this.toRect(obstacle)));
 
     for (const obstacle of this.obstacles) {
-      obstacle.prevX = obstacle.x;
+      obstacle.y += fallDistance;
     }
+
+    // The obstacle's fall happens after the player has already settled at
+    // its final position for this frame (no further movement until the
+    // next pointer event), so check the fall's swept path against the
+    // player's resting position, not its full swept range.
+    if (!collided) {
+      const playerRect = this.toRect(this.player);
+      collided = this.obstacles.some((obstacle) =>
+        intersects(playerRect, this.obstacleSweptRect(obstacle, fallDistance))
+      );
+    }
+
+    if (collided) {
+      this.triggerGameOver();
+    }
+    this.prevPlayerX = this.player.x;
 
     this.obstacles = this.obstacles.filter((obstacle) => {
-      if (obstacle.x < -OBSTACLE_WIDTH) {
+      if (obstacle.y > HEIGHT + OBSTACLE_HEIGHT) {
         obstacle.destroy();
         return false;
       }
@@ -114,34 +120,30 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private handleAction(): void {
+  private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state === 'playing') {
-      this.jump();
+      this.movePlayerTo(pointer.x);
     } else {
       this.restart();
     }
   }
 
-  private jump(): void {
-    const body = this.player.body;
-    if (body.blocked.down || body.touching.down) {
-      body.setVelocityY(JUMP_VELOCITY);
+  private handlePointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.state !== 'playing' || !pointer.isDown) {
+      return;
     }
+    this.movePlayerTo(pointer.x);
+  }
+
+  private movePlayerTo(x: number): void {
+    const half = PLAYER_SIZE / 2;
+    this.player.x = Phaser.Math.Clamp(x, half, WIDTH - half);
   }
 
   private spawnObstacle(): void {
-    const obstacle = this.physics.add.existing(
-      this.add.rectangle(
-        WIDTH + OBSTACLE_WIDTH,
-        GROUND_Y - OBSTACLE_HEIGHT / 2,
-        OBSTACLE_WIDTH,
-        OBSTACLE_HEIGHT,
-        0xff0000
-      )
-    ) as Obstacle;
-    obstacle.body.setAllowGravity(false);
-    obstacle.body.setVelocityX(-OBSTACLE_SPEED);
-    obstacle.prevX = obstacle.x;
+    const half = OBSTACLE_WIDTH / 2;
+    const x = Phaser.Math.Between(half, WIDTH - half);
+    const obstacle = this.add.rectangle(x, -OBSTACLE_HEIGHT, OBSTACLE_WIDTH, OBSTACLE_HEIGHT, 0xff0000);
     this.obstacles.push(obstacle);
   }
 
@@ -155,17 +157,20 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  // Bounds of the horizontal span an obstacle swept through this frame
-  // (from its position at the start of the frame to its position now),
-  // so a large single-frame move can't tunnel through the player's hitbox
-  // without ever overlapping it on a sampled frame. Only x is swept —
-  // obstacles never move vertically (gravity is disabled on them).
-  private sweptRect(obstacle: Obstacle): Rect {
-    const currentX = obstacle.x;
-    obstacle.x = obstacle.prevX;
-    const prevBounds = obstacle.getBounds();
-    obstacle.x = currentX;
-    const currentBounds = obstacle.getBounds();
+  // Bounds of the horizontal span the player crossed this frame (from its
+  // position at the end of the previous frame to its current position),
+  // so a single fast drag/tap that jumps the player's x — pointer events
+  // move it instantly, independent of update()'s per-frame delta — can't
+  // pass through an obstacle without ever overlapping it on a sampled
+  // frame. Only x is swept — the player never moves vertically. Checked
+  // against each obstacle's PRE-fall position (see update()) since all of
+  // this sweep happened before this frame's fall was applied.
+  private playerSweptRect(): Rect {
+    const currentX = this.player.x;
+    this.player.x = this.prevPlayerX;
+    const prevBounds = this.player.getBounds();
+    this.player.x = currentX;
+    const currentBounds = this.player.getBounds();
 
     const left = Math.min(prevBounds.x, currentBounds.x);
     const right = Math.max(prevBounds.x + prevBounds.width, currentBounds.x + currentBounds.width);
@@ -178,9 +183,33 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  // Bounds of the vertical span an obstacle fell through this frame (from
+  // its position before this frame's fall to its position now). Checked
+  // against the player's FINAL (unswept) rect in update(): the obstacle's
+  // fall happens after the player has already settled at its position for
+  // this frame, so there's nothing left of the player's own motion to
+  // sweep at this point — only the obstacle's. Only y is swept — obstacles
+  // never move horizontally.
+  private obstacleSweptRect(obstacle: Phaser.GameObjects.Rectangle, fallDistance: number): Rect {
+    const currentY = obstacle.y;
+    obstacle.y = currentY - fallDistance;
+    const prevBounds = obstacle.getBounds();
+    obstacle.y = currentY;
+    const currentBounds = obstacle.getBounds();
+
+    const top = Math.min(prevBounds.y, currentBounds.y);
+    const bottom = Math.max(prevBounds.y + prevBounds.height, currentBounds.y + currentBounds.height);
+
+    return {
+      x: currentBounds.x,
+      y: top,
+      width: currentBounds.width,
+      height: bottom - top,
+    };
+  }
+
   private triggerGameOver(): void {
     this.state = 'gameOver';
-    this.physics.pause();
     this.gameOverText.setText(
       `Game Over\nScore: ${getScoreValue(this.scoreState)}\nTap to Restart`
     );
@@ -196,8 +225,7 @@ export class GameScene extends Phaser.Scene {
       obstacle.destroy();
     }
     this.obstacles = [];
-    this.player.setPosition(PLAYER_START_X, GROUND_Y - PLAYER_SIZE / 2);
-    this.player.body.setVelocity(0, 0);
-    this.physics.resume();
+    this.player.x = WIDTH / 2;
+    this.prevPlayerX = WIDTH / 2;
   }
 }
