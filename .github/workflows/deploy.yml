@@ -14,6 +14,7 @@ on:
       - 'tsconfig.json'
       - 'firebase.json'
       - '.firebaserc'
+      - 'placeholder-site/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
