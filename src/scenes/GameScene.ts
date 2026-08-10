@@ -54,6 +54,9 @@ export class GameScene extends Phaser.Scene {
       align: 'center',
     });
     this.gameOverText.setOrigin(0.5, 0.5);
+
+    this.scoreText.setDepth(10);
+    this.gameOverText.setDepth(10);
   }
 
   update(_time: number, delta: number): void {

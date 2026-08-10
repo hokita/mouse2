@@ -24,7 +24,7 @@ A consequence of dropping jump/gravity entirely (movement is now purely horizont
 Single Phaser `GameScene`, same `"playing"` / `"gameOver"` state machine as before.
 
 - **Player**: rectangle GameObject, fixed `y` near the bottom of the canvas, `x` driven by drag input and clamped to `[PLAYER_SIZE / 2, WIDTH - PLAYER_SIZE / 2]`.
-- **Obstacles**: rectangle GameObjects spawned at a random `x` just above the top edge, falling straight down at a constant speed. Same scope as the original game: one obstacle at a time, constant fall speed, no difficulty ramp. Destroyed once fully past the bottom edge.
+- **Obstacles**: rectangle GameObjects spawned at a random `x` just above the top edge, falling straight down at a constant speed. Same scope as the original game: spawner-driven with no cap on simultaneous obstacles and no difficulty ramp — given the spawn interval (800-1800ms) vs. how long an obstacle takes to fall off-screen (over 3s), multiple obstacles are typically on screen at once, same as in the original landscape game. Destroyed once fully past the bottom edge.
 - **Score**: unchanged — ticks by survival time (`score.ts`), displayed top-left.
 - **Collision**: plain AABB `intersects()` check (from `collision.ts`) between the player's bounds and each obstacle's bounds, every frame. The previous `sweptRect()` anti-tunneling logic is removed — it existed only because Arcade Physics moved obstacles independently of the scene's own `update()` step; now that all movement is delta-driven inside `update()`, there's nothing to tunnel past.
 - **Game over / restart**: unchanged — colliding freezes obstacles/player and shows "Game Over", the final score, and "Tap to Restart"; tapping resets score/obstacles/player position and returns to `"playing"`.
@@ -65,7 +65,6 @@ No changes to `src/core/*` or their tests.
 ## Out of Scope
 
 - Difficulty ramp (fall speed or spawn frequency increasing over time)
-- Multiple simultaneous obstacles
 - Lane-based (discrete) obstacle positions — obstacles spawn at freeform random `x`
 - Keyboard/arrow-key movement input (touch/mouse-drag only, consistent with the iPhone focus)
 - Sound, sprite/image assets, high-score persistence (still out of scope, per the original spec)
