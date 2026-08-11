@@ -3,4 +3,7 @@ export interface GameEntry {
   sceneKey: string;
 }
 
-export const GAMES: GameEntry[] = [{ title: 'Dodger', sceneKey: 'GameScene' }];
+export const GAMES: GameEntry[] = [
+  { title: 'Dodger', sceneKey: 'GameScene' },
+  { title: 'Car Racer', sceneKey: 'CarScene' },
+];
