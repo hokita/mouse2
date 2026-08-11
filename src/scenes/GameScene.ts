@@ -298,7 +298,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Blink while invincible so kids can see the shield; solid otherwise.
-    this.player.setAlpha(isInvincible(this.livesState) && Math.floor(_time / 100) % 2 === 0 ? 0.3 : 1);
+    // Gated on 'playing' because triggerGameOver() (above, on this same
+    // frame if the killing hit just landed) sets alpha back to 1 for the
+    // corpse; without this gate the blink expression would run afterward
+    // in the same call and could overwrite that back to 0.3, then update()
+    // early-returns on every later frame, freezing the player translucent.
+    if (this.state === 'playing') {
+      this.player.setAlpha(isInvincible(this.livesState) && Math.floor(_time / 100) % 2 === 0 ? 0.3 : 1);
+    }
     this.prevPlayerX = this.player.x;
 
     this.enemies = this.enemies.filter((enemy) => {
