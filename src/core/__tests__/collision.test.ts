@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { intersects } from '../collision';
+import { intersects, rectAt } from '../collision';
+
+describe('rectAt', () => {
+  it('centres the rect on the given point', () => {
+    expect(rectAt(100, 50, 40, 20)).toEqual({ x: 80, y: 40, width: 40, height: 20 });
+  });
+
+  it('handles odd sizes without drifting off centre', () => {
+    const rect = rectAt(0, 0, 30, 50);
+    expect(rect.x + rect.width / 2).toBe(0);
+    expect(rect.y + rect.height / 2).toBe(0);
+  });
+});
 
 describe('intersects', () => {
   it('returns true when rectangles overlap', () => {

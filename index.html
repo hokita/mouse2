@@ -4,15 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>Dodger Game</title>
+    <meta name="theme-color" content="#070a1a" />
+    <title>mouse2</title>
     <style>
-      html, body {
+      html,
+      body {
         margin: 0;
         padding: 0;
         overflow: hidden;
         overscroll-behavior: none;
         touch-action: none;
-        background: #000;
+        color-scheme: dark;
+        /* The canvas is letterboxed on anything that is not a tall phone;
+           this is what fills the bars, so the surround reads as part of the
+           game rather than as dead space. */
+        background:
+          radial-gradient(120% 80% at 50% 0%, #1b1f4b 0%, rgba(27, 31, 75, 0) 60%),
+          #05070f;
+      }
+
+      #app {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #app canvas {
+        /* Softens the seam between the letterbox and the play area. */
+        box-shadow: 0 0 60px rgba(69, 224, 255, 0.12);
       }
     </style>
   </head>

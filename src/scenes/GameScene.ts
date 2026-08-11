@@ -3,17 +3,33 @@ import { createScore, addPoints, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
-import { intersects } from '../core/collision';
+import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
+import { sweepX, sweepY } from '../core/sweep';
 import { wobbleX } from '../core/wobble';
 import { createLives, hit, tickLives, isInvincible } from '../core/lives';
 import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
+import { PALETTE } from '../ui/theme';
+import {
+  SHARD_HEIGHT,
+  SHARD_WIDTH,
+  SHIP_SIZE,
+  TEX,
+  ensureFxTextures,
+  ensureShardTexture,
+  ensureShipTexture,
+} from '../ui/textures';
+import { DEPTH, createGameOverOverlay, createStarBackdrop, createStatPill, transitionTo } from '../ui/widgets';
+import type { GameOverOverlay, Starfield, StatPill } from '../ui/widgets';
 
-const PLAYER_SIZE = 40;
+const ACCENT = PALETTE.cyan;
+
+const PLAYER_SIZE = SHIP_SIZE;
 const PLAYER_MARGIN_BOTTOM = 120;
 const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
-const ENEMY_SIZE = 50;
+const ENEMY_WIDTH = SHARD_WIDTH;
+const ENEMY_HEIGHT = SHARD_HEIGHT;
 const ENEMY_FALL_SPEED = 60;
 const ENEMY_WOBBLE_AMPLITUDE = 60;
 const ENEMY_WOBBLE_PERIOD_MS = 2000;
@@ -21,6 +37,10 @@ const ENEMY_MIN_SPAWN_INTERVAL_MS = 1500;
 const ENEMY_MAX_SPAWN_INTERVAL_MS = 2500;
 const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
 const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
+
+/** Enemies come in four flavours purely so the field never looks uniform. */
+const HAZARD_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.amber, PALETTE.mint];
+
 // Caps how much sim time a single frame advances timers and movement by, so
 // a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
 // cap, the fastest closing pair (a 500px/s player bullet vs. a 60px/s
@@ -41,14 +61,19 @@ const INVINCIBILITY_MS = 1500;
 type GameState = 'playing' | 'gameOver';
 
 interface Enemy {
-  sprite: Phaser.GameObjects.Rectangle;
+  sprite: Phaser.GameObjects.Image;
+  /** Soft halo trailing the shard; purely decorative. */
+  halo: Phaser.GameObjects.Image;
+  color: number;
   baseX: number;
   elapsedMs: number;
   fireState: SpawnerState;
 }
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle;
+  private stars!: Starfield;
+  private player!: Phaser.GameObjects.Image;
+  private thruster!: Phaser.GameObjects.Particles.ParticleEmitter;
   private prevPlayerX!: number;
   private enemies: Enemy[] = [];
   private playerBullets: Phaser.GameObjects.Rectangle[] = [];
@@ -56,12 +81,11 @@ export class GameScene extends Phaser.Scene {
   private fireState!: SpawnerState;
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
-  private scoreText!: Phaser.GameObjects.Text;
+  private scorePill!: StatPill;
   private livesState!: LivesState;
-  private livesText!: Phaser.GameObjects.Text;
-  private gameOverText!: Phaser.GameObjects.Text;
-  private restartButton!: Phaser.GameObjects.Text;
-  private menuButton!: Phaser.GameObjects.Text;
+  private livesPill!: StatPill;
+  private overlay!: GameOverOverlay;
+  private overlayShown = false;
   private state!: GameState;
   private dragging = false;
 
@@ -70,104 +94,82 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.player = this.add.rectangle(WIDTH / 2, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE, 0x00ff00);
+    this.stars = createStarBackdrop(this);
+    ensureFxTextures(this);
+
+    this.add
+      .image(WIDTH / 2, 0, TEX.topFade)
+      .setOrigin(0.5, 0)
+      .setDisplaySize(WIDTH, 200)
+      .setAlpha(0.9)
+      .setDepth(DEPTH.effects);
+
+    this.thruster = this.add.particles(0, 0, TEX.spark, {
+      speedY: { min: 70, max: 190 },
+      speedX: { min: -22, max: 22 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.85, end: 0 },
+      lifespan: 420,
+      frequency: 26,
+      tint: [ACCENT, PALETTE.violet],
+      blendMode: 'ADD',
+    });
+    this.thruster.setDepth(DEPTH.world - 1);
+
+    this.player = this.add
+      .image(WIDTH / 2, PLAYER_Y, ensureShipTexture(this))
+      .setDepth(DEPTH.world);
+    this.thruster.startFollow(this.player, 0, PLAYER_SIZE / 2 - 6);
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
 
-    this.scoreText = this.add.text(16, 16, 'Score: 0', {
-      fontSize: '20px',
-      color: '#000000',
+    this.scorePill = createStatPill(this, {
+      x: 18,
+      y: 18,
+      width: 150,
+      label: 'Score',
+      accent: ACCENT,
     });
 
-    this.livesText = this.add.text(WIDTH - 16, 16, '', {
-      fontSize: '24px',
-      color: '#ff0000',
+    this.livesPill = createStatPill(this, {
+      x: WIDTH - 18,
+      y: 18,
+      width: 130,
+      label: 'Hearts',
+      align: 'right',
+      accent: PALETTE.rose,
     });
-    this.livesText.setOrigin(1, 0);
 
-    this.gameOverText = this.add.text(WIDTH / 2, HEIGHT / 2 - 60, '', {
-      fontSize: '28px',
-      color: '#000000',
-      align: 'center',
+    this.overlay = createGameOverOverlay(this, {
+      accent: ACCENT,
+      onRestart: () => this.resetState(),
+      onMenu: () => transitionTo(this, 'MenuScene'),
+      // Tracks the card rather than just the run being over: the card animates
+      // in a beat after the crash, and these buttons should mean nothing until
+      // it is up. Phaser will not hit-test them while the overlay is hidden
+      // anyway, so this is a statement of intent, not the thing holding the
+      // line.
+      isArmed: () => this.state === 'gameOver' && this.overlayShown,
     });
-    this.gameOverText.setOrigin(0.5, 0.5);
 
-    // Text is set to its final non-empty label here, BEFORE setInteractive(),
-    // because setInteractive({ useHandCursor: true }) with no explicit hitArea
-    // calls setHitAreaFromTexture(), which snapshots the object's width/height
-    // ONCE at call time into a fixed hitArea. setText() later (in
-    // triggerGameOver()) recomputes width/height but never touches hitArea,
-    // so if the label started as '' the hitArea would stay frozen at ~0px
-    // wide forever — only a hairline sliver would be tappable. Visibility is
-    // toggled instead of the text, so the hitArea never goes stale.
-    this.restartButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 20, 'Tap to Restart', {
-      fontSize: '22px',
-      color: '#0000ff',
-    });
-    this.restartButton.setOrigin(0.5, 0.5);
-    this.restartButton.setInteractive({ useHandCursor: true });
-    this.restartButton.on(
-      'pointerdown',
-      (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-        // Defense in depth: the button is only meant to act during Game Over.
-        // Visibility already gates this in normal operation, but Phaser does
-        // not itself skip input processing for invisible objects, so this
-        // guard keeps the handler inert during "playing" independent of that.
-        if (this.state !== 'gameOver') {
-          return;
-        }
-        // Stop this tap from also reaching the scene-wide pointerdown handler
-        // (handlePointerDown): without this, resetState() below flips state
-        // to 'playing' synchronously, and the same tap's coordinates would
-        // then be read by handlePointerDown as a drag-move command, snapping
-        // the just-centered player to wherever on this button was tapped.
-        event.stopPropagation();
-        this.resetState();
-      }
-    );
-
-    this.menuButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 70, 'Back to Menu', {
-      fontSize: '22px',
-      color: '#0000ff',
-    });
-    this.menuButton.setOrigin(0.5, 0.5);
-    this.menuButton.setInteractive({ useHandCursor: true });
-    this.menuButton.on(
-      'pointerdown',
-      (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-        if (this.state !== 'gameOver') {
-          return;
-        }
-        // Same defensive stopPropagation() as restartButton — see its comment.
-        event.stopPropagation();
-        this.scene.start('MenuScene');
-      }
-    );
-
-    this.scoreText.setDepth(10);
-    this.livesText.setDepth(10);
-    this.gameOverText.setDepth(10);
-    this.restartButton.setDepth(10);
-    this.menuButton.setDepth(10);
-
+    this.cameras.main.fadeIn(280, 0, 0, 0);
     this.resetState();
   }
 
   private resetState(): void {
     this.state = 'playing';
+    this.overlayShown = false;
+    this.overlay.hide();
     this.scoreState = createScore();
     this.spawnerState = createSpawner(ENEMY_MIN_SPAWN_INTERVAL_MS, ENEMY_MAX_SPAWN_INTERVAL_MS);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
-    this.scoreText.setText('Score: 0');
+    this.scorePill.setValue('0');
     this.livesState = createLives(STARTING_LIVES);
-    this.updateLivesText();
-    this.player.setAlpha(1);
-    this.gameOverText.setText('');
-    this.restartButton.setVisible(false);
-    this.menuButton.setVisible(false);
+    this.updateLivesPill();
     for (const enemy of this.enemies) {
       enemy.sprite.destroy();
+      enemy.halo.destroy();
     }
     this.enemies = [];
     for (const bullet of this.playerBullets) {
@@ -179,12 +181,10 @@ export class GameScene extends Phaser.Scene {
     }
     this.enemyBullets = [];
     this.player.x = WIDTH / 2;
+    this.player.setVisible(true).setAlpha(1).setRotation(0);
     this.prevPlayerX = WIDTH / 2;
     this.dragging = false;
-  }
-
-  private updateLivesText(): void {
-    this.livesText.setText('♥'.repeat(Math.max(0, this.livesState.lives)));
+    this.thruster.start();
   }
 
   update(_time: number, delta: number): void {
@@ -193,6 +193,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
+
+    // The bank applied while steering (see movePlayerTo) relaxes back to level
+    // as soon as the thumb stops moving. Cosmetic only — the collision box is
+    // axis-aligned whatever the sprite is doing.
+    this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
 
     const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
@@ -209,28 +214,36 @@ export class GameScene extends Phaser.Scene {
     }
 
     const fallDistance = ENEMY_FALL_SPEED * (safeDelta / 1000);
+    // The starfield drifts at a fraction of the enemy speed, so the
+    // background reads as far away rather than as part of the hazard layer.
+    this.stars.scroll(fallDistance * 0.22);
 
-    // Player movement happened via pointer events before update(), while
-    // enemies were still at their pre-move positions — sweep the player's
-    // path against where enemies WERE.
-    const playerSweptRect = this.playerSweptRect();
-    let collided = this.enemies.some((enemy) => intersects(playerSweptRect, this.toRect(enemy.sprite)));
+    // All of this frame's player movement happens via pointer events fired
+    // before update() runs, while every enemy and bullet was still at its
+    // pre-move position — so check the player's swept path against where
+    // things WERE, not where they're about to land.
+    const playerRect = rectAt(this.player.x, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE);
+    const steerPath = sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2);
+    let collided = this.enemies.some((enemy) => intersects(steerPath, this.enemyRect(enemy)));
 
     for (const enemy of this.enemies) {
       enemy.elapsedMs += safeDelta;
       enemy.sprite.y += fallDistance;
       enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
+      enemy.halo.x = enemy.sprite.x;
+      enemy.halo.y = enemy.sprite.y - ENEMY_HEIGHT * 0.15;
 
       const enemyFire = tickSpawner(enemy.fireState, safeDelta);
       enemy.fireState = enemyFire.state;
       if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
         const bullet = this.add.rectangle(
           enemy.sprite.x,
-          enemy.sprite.y + ENEMY_SIZE / 2 + ENEMY_BULLET_SIZE / 2,
+          enemy.sprite.y + ENEMY_HEIGHT / 2 + ENEMY_BULLET_SIZE / 2,
           ENEMY_BULLET_SIZE,
           ENEMY_BULLET_SIZE,
-          0xff8800
+          PALETTE.amber
         );
+        bullet.setDepth(DEPTH.world);
         this.enemyBullets.push(bullet);
       }
     }
@@ -248,33 +261,32 @@ export class GameScene extends Phaser.Scene {
         bullet.destroy();
         return false;
       }
-      const bulletRect = this.toRect(bullet);
-      const target = this.enemies.find((enemy) => intersects(bulletRect, this.toRect(enemy.sprite)));
+      const bulletRect = rectAt(bullet.x, bullet.y, PLAYER_BULLET_WIDTH, PLAYER_BULLET_HEIGHT);
+      const target = this.enemies.find((enemy) => intersects(bulletRect, this.enemyRect(enemy)));
       if (target) {
-        target.sprite.destroy();
+        this.explodeEnemy(target);
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
         this.scoreState = addPoints(this.scoreState, KILL_POINTS);
-        this.scoreText.setText(`Score: ${getScoreValue(this.scoreState)}`);
+        this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
         bullet.destroy();
         return false;
       }
       return true;
     });
 
-    const playerHitRect = this.toRect(this.player);
     let shotByEnemy = false;
     this.enemyBullets = this.enemyBullets.filter((bullet) => {
       // The player's drag movement happened before update(), while this
       // bullet was still at its pre-fall position — so, as with the enemy
-      // checks above, test the player's swept path against where the
-      // bullet WAS before also checking final rects after the fall.
-      const sweptHit = intersects(playerSweptRect, this.toRect(bullet));
+      // checks, test the player's swept path against where the bullet WAS
+      // before also checking final rects after the fall.
+      const sweptHit = intersects(steerPath, rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE));
       bullet.y += ENEMY_BULLET_SPEED * (safeDelta / 1000);
       if (bullet.y > HEIGHT + ENEMY_BULLET_SIZE) {
         bullet.destroy();
         return false;
       }
-      if (sweptHit || intersects(this.toRect(bullet), playerHitRect)) {
+      if (sweptHit || intersects(rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE), playerRect)) {
         bullet.destroy();
         shotByEnemy = true;
         return false;
@@ -282,20 +294,34 @@ export class GameScene extends Phaser.Scene {
       return true;
     });
 
-    // Enemy speeds are low (≤ ~20px per capped frame, well under
-    // ENEMY_SIZE), so a plain overlap check after the move can't miss a
-    // pass-through; no enemy-side sweep needed.
+    // The enemy's fall happens after the player has already settled at its
+    // final position for this frame, so check the fall's swept path against
+    // the player's resting position, not its full swept range.
     if (!collided) {
-      const playerRect = this.toRect(this.player);
-      collided = this.enemies.some((enemy) => intersects(playerRect, this.toRect(enemy.sprite)));
+      collided = this.enemies.some((enemy) => {
+        const rect = this.enemyRect(enemy);
+        return intersects(playerRect, sweepY(rect, rect.y - fallDistance));
+      });
     }
+
+    this.prevPlayerX = this.player.x;
+
+    this.enemies = this.enemies.filter((enemy) => {
+      if (enemy.sprite.y > HEIGHT + ENEMY_HEIGHT) {
+        enemy.sprite.destroy();
+        enemy.halo.destroy();
+        return false;
+      }
+      return true;
+    });
 
     this.livesState = tickLives(this.livesState, safeDelta);
     if (collided || shotByEnemy) {
       const result = hit(this.livesState, INVINCIBILITY_MS);
       this.livesState = result.state;
       if (result.tookHit) {
-        this.updateLivesText();
+        this.updateLivesPill();
+        this.cameras.main.shake(140, 0.006);
       }
       if (result.dead) {
         this.triggerGameOver();
@@ -304,22 +330,12 @@ export class GameScene extends Phaser.Scene {
 
     // Blink while invincible so kids can see the shield; solid otherwise.
     // Gated on 'playing' because triggerGameOver() (above, on this same
-    // frame if the killing hit just landed) sets alpha back to 1 for the
-    // corpse; without this gate the blink expression would run afterward
-    // in the same call and could overwrite that back to 0.3, then update()
-    // early-returns on every later frame, freezing the player translucent.
+    // frame if the killing hit just landed) hides the player for the crash
+    // sequence; without this gate the blink expression would run afterward
+    // in the same call and fight that.
     if (this.state === 'playing') {
       this.player.setAlpha(isInvincible(this.livesState) && Math.floor(_time / 100) % 2 === 0 ? 0.3 : 1);
     }
-    this.prevPlayerX = this.player.x;
-
-    this.enemies = this.enemies.filter((enemy) => {
-      if (enemy.sprite.y > HEIGHT + ENEMY_SIZE) {
-        enemy.sprite.destroy();
-        return false;
-      }
-      return true;
-    });
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -340,78 +356,108 @@ export class GameScene extends Phaser.Scene {
 
   private movePlayerTo(x: number): void {
     const half = PLAYER_SIZE / 2;
-    this.player.x = Phaser.Math.Clamp(x, half, WIDTH - half);
+    const next = Phaser.Math.Clamp(x, half, WIDTH - half);
+    // Bank into the turn — the ship leans toward wherever the thumb pulls it.
+    const lean = Phaser.Math.Clamp((next - this.player.x) * 0.03, -0.28, 0.28);
+    this.player.x = next;
+    this.player.setRotation(lean);
   }
 
   private firePlayerBullet(): void {
     const bullet = this.add.rectangle(
       this.player.x,
-      this.player.y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
+      PLAYER_Y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
       PLAYER_BULLET_WIDTH,
       PLAYER_BULLET_HEIGHT,
-      0x0088ff
+      ACCENT
     );
+    bullet.setDepth(DEPTH.world);
     this.playerBullets.push(bullet);
   }
 
   private spawnEnemy(): void {
-    const half = ENEMY_SIZE / 2;
-    const margin = half + ENEMY_WOBBLE_AMPLITUDE;
+    // Spawning baseX inside the wobble margin keeps the whole wobble arc on
+    // screen, so no per-frame clamping is needed.
+    const margin = ENEMY_WIDTH / 2 + ENEMY_WOBBLE_AMPLITUDE;
     const baseX = Phaser.Math.Between(margin, WIDTH - margin);
-    const sprite = this.add.rectangle(baseX, -ENEMY_SIZE, ENEMY_SIZE, ENEMY_SIZE, 0xff0000);
+    const color = HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
+
+    const halo = this.add
+      .image(baseX, -ENEMY_HEIGHT, TEX.glow)
+      .setDisplaySize(ENEMY_WIDTH * 2.6, ENEMY_HEIGHT * 2)
+      .setTint(color)
+      .setAlpha(0.3)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(DEPTH.world - 1);
+
+    const sprite = this.add
+      .image(baseX, -ENEMY_HEIGHT, ensureShardTexture(this, color))
+      .setDepth(DEPTH.world);
+
     this.enemies.push({
       sprite,
+      halo,
+      color,
       baseX,
       elapsedMs: 0,
       fireState: createSpawner(ENEMY_MIN_FIRE_INTERVAL_MS, ENEMY_MAX_FIRE_INTERVAL_MS),
     });
   }
 
-  private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
-    const bounds = obj.getBounds();
-    return {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-    };
+  private enemyRect(enemy: Enemy): Rect {
+    return rectAt(enemy.sprite.x, enemy.sprite.y, ENEMY_WIDTH, ENEMY_HEIGHT);
   }
 
-  // Bounds of the horizontal span the player crossed this frame (from its
-  // position at the end of the previous frame to its current position),
-  // so a single fast drag/tap that jumps the player's x — pointer events
-  // move it instantly, independent of update()'s per-frame delta — can't
-  // pass through an enemy without ever overlapping it on a sampled
-  // frame. Only x is swept — the player never moves vertically. Checked
-  // against each enemy's PRE-move position (see update()) since all of
-  // this sweep happened before this frame's fall/wobble was applied.
-  private playerSweptRect(): Rect {
-    const currentX = this.player.x;
-    this.player.x = this.prevPlayerX;
-    const prevBounds = this.player.getBounds();
-    this.player.x = currentX;
-    const currentBounds = this.player.getBounds();
+  /** Destroys a shot-down enemy with a short burst in its own colour. */
+  private explodeEnemy(enemy: Enemy): void {
+    const burst = this.add.particles(enemy.sprite.x, enemy.sprite.y, TEX.spark, {
+      speed: { min: 60, max: 220 },
+      lifespan: { min: 200, max: 450 },
+      scale: { start: 0.7, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [enemy.color, PALETTE.text],
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    burst.setDepth(DEPTH.effects);
+    burst.explode(12);
+    this.time.delayedCall(600, () => burst.destroy());
+    enemy.sprite.destroy();
+    enemy.halo.destroy();
+  }
 
-    const left = Math.min(prevBounds.x, currentBounds.x);
-    const right = Math.max(prevBounds.x + prevBounds.width, currentBounds.x + currentBounds.width);
-
-    return {
-      x: left,
-      y: currentBounds.y,
-      width: right - left,
-      height: currentBounds.height,
-    };
+  private updateLivesPill(): void {
+    this.livesPill.setValue('♥'.repeat(Math.max(0, this.livesState.lives)));
   }
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
-    // The death frame's blink line (below, in update()) can run before this
-    // and leave the player at alpha 0.3; since update() early-returns once
-    // state is 'gameOver', that would otherwise never get corrected. Force
-    // solid here so the corpse is never stuck semi-transparent.
-    this.player.setAlpha(1);
-    this.gameOverText.setText(`Game Over\nScore: ${getScoreValue(this.scoreState)}`);
-    this.restartButton.setVisible(true);
-    this.menuButton.setVisible(true);
+    this.thruster.stop();
+
+    const burst = this.add.particles(this.player.x, this.player.y, TEX.spark, {
+      speed: { min: 90, max: 340 },
+      lifespan: { min: 300, max: 700 },
+      scale: { start: 0.95, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [ACCENT, PALETTE.text, PALETTE.violet],
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    burst.setDepth(DEPTH.effects);
+    burst.explode(30);
+    this.time.delayedCall(1000, () => burst.destroy());
+
+    this.player.setVisible(false);
+    this.cameras.main.shake(240, 0.012);
+    this.cameras.main.flash(160, 69, 224, 255);
+
+    // Let the explosion read before the card covers it.
+    this.time.delayedCall(320, () => {
+      if (this.state !== 'gameOver') {
+        return;
+      }
+      this.overlayShown = true;
+      this.overlay.show('GAME OVER', 'Score', `${getScoreValue(this.scoreState)}`);
+    });
   }
 }
