@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { createScore, tickScore, getScoreValue } from '../core/score';
+import { createScore, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
@@ -146,9 +146,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
-
-    this.scoreState = tickScore(this.scoreState, safeDelta);
-    this.scoreText.setText(`Score: ${getScoreValue(this.scoreState)}`);
 
     const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
