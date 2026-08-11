@@ -114,10 +114,11 @@ export class GameScene extends Phaser.Scene {
       accent: ACCENT,
       onRestart: () => this.resetState(),
       onMenu: () => transitionTo(this, 'MenuScene'),
-      // Gated on the overlay actually being on screen, not merely on the run
-      // being over: the card animates in a beat after the crash, and Phaser
-      // routes taps to hidden objects, so an early tap would otherwise hit a
-      // button nobody can see yet.
+      // Tracks the card rather than just the run being over: the card animates
+      // in a beat after the crash, and these buttons should mean nothing until
+      // it is up. Phaser will not hit-test them while the overlay is hidden
+      // anyway, so this is a statement of intent, not the thing holding the
+      // line.
       isArmed: () => this.state === 'gameOver' && this.overlayShown,
     });
 

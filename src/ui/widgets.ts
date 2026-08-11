@@ -102,8 +102,13 @@ export interface ButtonOptions {
   accent?: number;
   onTap: () => void;
   /**
-   * Taps are dropped unless this returns true. Phaser keeps routing input to
-   * hidden objects, so visibility alone is not a safe gate.
+   * Taps are dropped unless this returns true.
+   *
+   * Not a substitute for hiding the control: Phaser skips hit-testing an
+   * object that is transparent or whose container is hidden, so an off-screen
+   * button is already unreachable (measured, not assumed). This gates on the
+   * caller's own state instead, which keeps a button's meaning tied to what
+   * the game is doing rather than to how the card happens to be concealed.
    */
   isArmed?: () => boolean;
 }
@@ -267,10 +272,10 @@ export function createGameOverOverlay(scene: Phaser.Scene, options: GameOverOpti
 
   const scrim = scene.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, PALETTE.skyTop, 0.78);
   // Swallows taps that land outside the card, so a stray press on the dimmed
-  // world can never reach anything behind the overlay. Interactivity is
-  // switched off whenever the overlay is hidden: Phaser happily routes input
-  // to invisible objects, and a permanently-live full-screen scrim would eat
-  // every steering tap of the next run.
+  // world can never reach the game behind it. Its input state is kept in step
+  // with whether the overlay is on screen. Phaser already skips hit-testing
+  // the children of a hidden container, so this is not load-bearing today —
+  // it just keeps a full-screen tap-eater from depending on that behaviour.
   scrim.on('pointerdown', (_p: unknown, _x: unknown, _y: unknown, event: Phaser.Types.Input.EventData) => {
     event.stopPropagation();
   });
