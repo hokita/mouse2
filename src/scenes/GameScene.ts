@@ -6,6 +6,8 @@ import type { SpawnerState } from '../core/spawner';
 import { intersects } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { wobbleX } from '../core/wobble';
+import { createLives, hit, tickLives, isInvincible } from '../core/lives';
+import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
 
 const PLAYER_SIZE = 40;
@@ -31,6 +33,8 @@ const PLAYER_BULLET_HEIGHT = 16;
 const KILL_POINTS = 10;
 const ENEMY_BULLET_SPEED = 150;
 const ENEMY_BULLET_SIZE = 10;
+const STARTING_LIVES = 3;
+const INVINCIBILITY_MS = 1500;
 
 type GameState = 'playing' | 'gameOver';
 
@@ -51,6 +55,8 @@ export class GameScene extends Phaser.Scene {
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
   private scoreText!: Phaser.GameObjects.Text;
+  private livesState!: LivesState;
+  private livesText!: Phaser.GameObjects.Text;
   private gameOverText!: Phaser.GameObjects.Text;
   private restartButton!: Phaser.GameObjects.Text;
   private menuButton!: Phaser.GameObjects.Text;
@@ -71,6 +77,12 @@ export class GameScene extends Phaser.Scene {
       fontSize: '20px',
       color: '#000000',
     });
+
+    this.livesText = this.add.text(WIDTH - 16, 16, '', {
+      fontSize: '24px',
+      color: '#ff0000',
+    });
+    this.livesText.setOrigin(1, 0);
 
     this.gameOverText = this.add.text(WIDTH / 2, HEIGHT / 2 - 60, '', {
       fontSize: '28px',
@@ -132,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.scoreText.setDepth(10);
+    this.livesText.setDepth(10);
     this.gameOverText.setDepth(10);
     this.restartButton.setDepth(10);
     this.menuButton.setDepth(10);
@@ -145,6 +158,9 @@ export class GameScene extends Phaser.Scene {
     this.spawnerState = createSpawner(ENEMY_MIN_SPAWN_INTERVAL_MS, ENEMY_MAX_SPAWN_INTERVAL_MS);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     this.scoreText.setText('Score: 0');
+    this.livesState = createLives(STARTING_LIVES);
+    this.updateLivesText();
+    this.player.setAlpha(1);
     this.gameOverText.setText('');
     this.restartButton.setVisible(false);
     this.menuButton.setVisible(false);
@@ -163,6 +179,10 @@ export class GameScene extends Phaser.Scene {
     this.player.x = WIDTH / 2;
     this.prevPlayerX = WIDTH / 2;
     this.dragging = false;
+  }
+
+  private updateLivesText(): void {
+    this.livesText.setText('♥'.repeat(Math.max(0, this.livesState.lives)));
   }
 
   update(_time: number, delta: number): void {
@@ -259,9 +279,20 @@ export class GameScene extends Phaser.Scene {
       collided = this.enemies.some((enemy) => intersects(playerRect, this.toRect(enemy.sprite)));
     }
 
+    this.livesState = tickLives(this.livesState, safeDelta);
     if (collided || shotByEnemy) {
-      this.triggerGameOver();
+      const result = hit(this.livesState, INVINCIBILITY_MS);
+      this.livesState = result.state;
+      if (result.tookHit) {
+        this.updateLivesText();
+      }
+      if (result.dead) {
+        this.triggerGameOver();
+      }
     }
+
+    // Blink while invincible so kids can see the shield; solid otherwise.
+    this.player.setAlpha(isInvincible(this.livesState) && Math.floor(_time / 100) % 2 === 0 ? 0.3 : 1);
     this.prevPlayerX = this.player.x;
 
     this.enemies = this.enemies.filter((enemy) => {
