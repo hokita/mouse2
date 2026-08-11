@@ -23,8 +23,10 @@ const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
 const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
 // Caps how much sim time a single frame advances timers and movement by, so
 // a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
-// cap the fastest object (a 500px/s player bullet) moves 50px in one step,
-// less than ENEMY_SIZE, so nothing can tunnel through a collision target.
+// cap, the fastest closing pair (a 500px/s player bullet vs. a 60px/s
+// falling enemy) closes 56px in one step, less than the 66px combined
+// height of the bullet (16) and enemy (50), so nothing can tunnel through
+// a collision target.
 const MAX_DELTA_MS = 100;
 const PLAYER_FIRE_INTERVAL_MS = 400;
 const PLAYER_BULLET_SPEED = 500;
@@ -237,6 +239,10 @@ export class GameScene extends Phaser.Scene {
       bullet.y -= PLAYER_BULLET_SPEED * (safeDelta / 1000);
     }
 
+    // The callback below reassigns this.enemies mid-iteration; that's safe
+    // because this filter iterates a snapshot of playerBullets and each
+    // callback re-reads this.enemies fresh via find(), so a killed enemy is
+    // immediately out of consideration for later bullets in the same frame.
     this.playerBullets = this.playerBullets.filter((bullet) => {
       if (bullet.y < -PLAYER_BULLET_HEIGHT) {
         bullet.destroy();
@@ -387,6 +393,11 @@ export class GameScene extends Phaser.Scene {
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
+    // The death frame's blink line (below, in update()) can run before this
+    // and leave the player at alpha 0.3; since update() early-returns once
+    // state is 'gameOver', that would otherwise never get corrected. Force
+    // solid here so the corpse is never stuck semi-transparent.
+    this.player.setAlpha(1);
     this.gameOverText.setText(`Game Over\nScore: ${getScoreValue(this.scoreState)}`);
     this.restartButton.setVisible(true);
     this.menuButton.setVisible(true);
