@@ -30,13 +30,13 @@ type GameState = 'playing' | 'gameOver';
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Rectangle;
-  private prevPlayerX = WIDTH / 2;
+  private prevPlayerX!: number;
   private obstacles: Phaser.GameObjects.Rectangle[] = [];
-  private scoreState: ScoreState = createScore();
-  private spawnerState: SpawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
+  private scoreState!: ScoreState;
+  private spawnerState!: SpawnerState;
   private scoreText!: Phaser.GameObjects.Text;
   private gameOverText!: Phaser.GameObjects.Text;
-  private state: GameState = 'playing';
+  private state!: GameState;
 
   constructor() {
     super('GameScene');
@@ -62,6 +62,22 @@ export class GameScene extends Phaser.Scene {
 
     this.scoreText.setDepth(10);
     this.gameOverText.setDepth(10);
+
+    this.resetState();
+  }
+
+  private resetState(): void {
+    this.state = 'playing';
+    this.scoreState = createScore();
+    this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
+    this.scoreText.setText('Score: 0');
+    this.gameOverText.setText('');
+    for (const obstacle of this.obstacles) {
+      obstacle.destroy();
+    }
+    this.obstacles = [];
+    this.player.x = WIDTH / 2;
+    this.prevPlayerX = WIDTH / 2;
   }
 
   update(_time: number, delta: number): void {
@@ -216,16 +232,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private restart(): void {
-    this.state = 'playing';
-    this.scoreState = createScore();
-    this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
-    this.scoreText.setText('Score: 0');
-    this.gameOverText.setText('');
-    for (const obstacle of this.obstacles) {
-      obstacle.destroy();
-    }
-    this.obstacles = [];
-    this.player.x = WIDTH / 2;
-    this.prevPlayerX = WIDTH / 2;
+    this.resetState();
   }
 }
