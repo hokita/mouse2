@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { createScore, tickScore, getScoreValue } from '../score';
+import { createScore, addPoints, getScoreValue } from '../score';
 
 describe('score', () => {
   it('starts at zero', () => {
-    const state = createScore();
-    expect(getScoreValue(state)).toBe(0);
+    expect(getScoreValue(createScore())).toBe(0);
   });
 
-  it('increases as time elapses', () => {
+  it('adds points per kill', () => {
     let state = createScore();
-    state = tickScore(state, 250);
-    expect(getScoreValue(state)).toBe(2);
+    state = addPoints(state, 10);
+    expect(getScoreValue(state)).toBe(10);
   });
 
-  it('accumulates elapsed time across multiple ticks', () => {
+  it('accumulates points across kills', () => {
     let state = createScore();
-    state = tickScore(state, 60);
-    state = tickScore(state, 60);
-    expect(getScoreValue(state)).toBe(1);
+    state = addPoints(state, 10);
+    state = addPoints(state, 10);
+    expect(getScoreValue(state)).toBe(20);
   });
 });

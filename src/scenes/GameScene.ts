@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
-import { createScore, tickScore, getScoreValue } from '../core/score';
+import { createScore, addPoints, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { sweepX, sweepY } from '../core/sweep';
+import { wobbleX } from '../core/wobble';
+import { createLives, hit, tickLives, isInvincible } from '../core/lives';
+import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE } from '../ui/theme';
 import {
@@ -25,32 +28,53 @@ const ACCENT = PALETTE.cyan;
 const PLAYER_SIZE = SHIP_SIZE;
 const PLAYER_MARGIN_BOTTOM = 120;
 const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
-const OBSTACLE_WIDTH = SHARD_WIDTH;
-const OBSTACLE_HEIGHT = SHARD_HEIGHT;
-const OBSTACLE_SPEED = 300;
-const MIN_SPAWN_INTERVAL_MS = 800;
-const MAX_SPAWN_INTERVAL_MS = 1800;
+// The shard texture is 30×50, but the design calls for ~50px-wide targets
+// that 3–5 year olds can actually hit — so enemies render the shard scaled
+// up uniformly and the hitbox tracks the displayed size (art = hitbox).
+const ENEMY_SCALE = 5 / 3;
+const ENEMY_WIDTH = SHARD_WIDTH * ENEMY_SCALE;
+const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
+const ENEMY_FALL_SPEED = 60;
+const ENEMY_WOBBLE_AMPLITUDE = 60;
+const ENEMY_WOBBLE_PERIOD_MS = 2000;
+const ENEMY_MIN_SPAWN_INTERVAL_MS = 1500;
+const ENEMY_MAX_SPAWN_INTERVAL_MS = 2500;
+const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
+const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
 
-/** Debris comes in four flavours purely so the field never looks uniform. */
+/** Enemies come in four flavours purely so the field never looks uniform. */
 const HAZARD_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.amber, PALETTE.mint];
 
-// Caps how much sim time a single frame advances score/spawn/obstacle-fall
-// timing by. At the cap, an obstacle falls OBSTACLE_SPEED * (MAX_DELTA_MS /
-// 1000) = 30px in one step — well under the player/obstacle size, so a long
-// stalled frame (e.g. a backgrounded tab) can't let an obstacle skip past
-// the player without ever overlapping it. This bound only holds while
-// OBSTACLE_SPEED * (MAX_DELTA_MS / 1000) <= PLAYER_SIZE + OBSTACLE_HEIGHT
-// (currently 30 <= 90, i.e. safe up to OBSTACLE_SPEED = 900) — revisit this
-// comment and MAX_DELTA_MS together if OBSTACLE_SPEED ever increases (e.g.
-// a difficulty ramp).
+// Caps how much sim time a single frame advances timers and movement by, so
+// a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
+// cap, the fastest closing pair (a 500px/s player bullet vs. a 60px/s
+// falling enemy) closes 56px in one step, well under the ~99px combined
+// height of the bullet (16) and enemy (~83) — and the kill check sweeps
+// both sides' frame motion anyway, so nothing can tunnel through a
+// collision target.
 const MAX_DELTA_MS = 100;
+const PLAYER_FIRE_INTERVAL_MS = 400;
+const PLAYER_BULLET_SPEED = 500;
+const PLAYER_BULLET_WIDTH = 8;
+const PLAYER_BULLET_HEIGHT = 16;
+const KILL_POINTS = 10;
+const ENEMY_BULLET_SPEED = 150;
+const ENEMY_BULLET_SIZE = 10;
+const STARTING_LIVES = 3;
+const INVINCIBILITY_MS = 1500;
 
 type GameState = 'playing' | 'gameOver';
 
-interface Obstacle {
+interface Enemy {
   sprite: Phaser.GameObjects.Image;
   /** Soft halo trailing the shard; purely decorative. */
   halo: Phaser.GameObjects.Image;
+  color: number;
+  baseX: number;
+  /** x before this frame's wobble step — the bullet kill check sweeps it. */
+  prevX: number;
+  elapsedMs: number;
+  fireState: SpawnerState;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -58,10 +82,15 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Image;
   private thruster!: Phaser.GameObjects.Particles.ParticleEmitter;
   private prevPlayerX!: number;
-  private obstacles: Obstacle[] = [];
+  private enemies: Enemy[] = [];
+  private playerBullets: Phaser.GameObjects.Rectangle[] = [];
+  private enemyBullets: Phaser.GameObjects.Rectangle[] = [];
+  private fireState!: SpawnerState;
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
   private scorePill!: StatPill;
+  private livesState!: LivesState;
+  private livesPill!: StatPill;
   private overlay!: GameOverOverlay;
   private overlayShown = false;
   private state!: GameState;
@@ -110,6 +139,15 @@ export class GameScene extends Phaser.Scene {
       accent: ACCENT,
     });
 
+    this.livesPill = createStatPill(this, {
+      x: WIDTH - 18,
+      y: 18,
+      width: 130,
+      label: 'Hearts',
+      align: 'right',
+      accent: PALETTE.rose,
+    });
+
     this.overlay = createGameOverOverlay(this, {
       accent: ACCENT,
       onRestart: () => this.resetState(),
@@ -131,13 +169,24 @@ export class GameScene extends Phaser.Scene {
     this.overlayShown = false;
     this.overlay.hide();
     this.scoreState = createScore();
-    this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
+    this.spawnerState = createSpawner(ENEMY_MIN_SPAWN_INTERVAL_MS, ENEMY_MAX_SPAWN_INTERVAL_MS);
+    this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     this.scorePill.setValue('0');
-    for (const obstacle of this.obstacles) {
-      obstacle.sprite.destroy();
-      obstacle.halo.destroy();
+    this.livesState = createLives(STARTING_LIVES);
+    this.updateLivesPill();
+    for (const enemy of this.enemies) {
+      enemy.sprite.destroy();
+      enemy.halo.destroy();
     }
-    this.obstacles = [];
+    this.enemies = [];
+    for (const bullet of this.playerBullets) {
+      bullet.destroy();
+    }
+    this.playerBullets = [];
+    for (const bullet of this.enemyBullets) {
+      bullet.destroy();
+    }
+    this.enemyBullets = [];
     this.player.x = WIDTH / 2;
     this.player.setVisible(true).setAlpha(1).setRotation(0);
     this.prevPlayerX = WIDTH / 2;
@@ -157,65 +206,175 @@ export class GameScene extends Phaser.Scene {
     // axis-aligned whatever the sprite is doing.
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
 
-    this.scoreState = tickScore(this.scoreState, safeDelta);
-    this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
-
     const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
     if (spawnResult.shouldSpawn) {
-      this.spawnObstacle();
+      this.spawnEnemy();
     }
 
-    const fallDistance = OBSTACLE_SPEED * (safeDelta / 1000);
-    // The starfield drifts at a fraction of the debris speed, so the
+    if (this.dragging && this.input.activePointer.isDown) {
+      const fireResult = tickSpawner(this.fireState, safeDelta);
+      this.fireState = fireResult.state;
+      if (fireResult.shouldSpawn) {
+        this.firePlayerBullet();
+      }
+    }
+
+    const fallDistance = ENEMY_FALL_SPEED * (safeDelta / 1000);
+    // The starfield drifts at a fraction of the enemy speed, so the
     // background reads as far away rather than as part of the hazard layer.
     this.stars.scroll(fallDistance * 0.22);
 
     // All of this frame's player movement happens via pointer events fired
-    // before update() runs, while every obstacle was still at its pre-fall
-    // position — so check the player's swept path against where obstacles
-    // WERE, not a blanket union with where they're about to land (which
-    // would report a hit even if the player had already cleared an x
-    // before the obstacle ever fell within reach).
+    // before update() runs, while every enemy and bullet was still at its
+    // pre-move position — so check the player's swept path against where
+    // things WERE, not where they're about to land.
     const playerRect = rectAt(this.player.x, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE);
     const steerPath = sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2);
-    let collided = this.obstacles.some((obstacle) => intersects(steerPath, this.obstacleRect(obstacle)));
+    let collided = this.enemies.some((enemy) => intersects(steerPath, this.enemyRect(enemy)));
 
-    for (const obstacle of this.obstacles) {
-      obstacle.sprite.y += fallDistance;
-      obstacle.halo.y = obstacle.sprite.y - OBSTACLE_HEIGHT * 0.15;
+    // Bullets fired this frame are collected separately and appended after
+    // the enemy-bullet collision pass below: a brand-new bullet postdates the
+    // player's drag (steerPath) and hasn't moved yet, so testing it against
+    // that historical path could consume a heart the player never earned.
+    const firedThisFrame: Phaser.GameObjects.Rectangle[] = [];
+    for (const enemy of this.enemies) {
+      enemy.prevX = enemy.sprite.x;
+      enemy.elapsedMs += safeDelta;
+      enemy.sprite.y += fallDistance;
+      enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
+      enemy.halo.x = enemy.sprite.x;
+      enemy.halo.y = enemy.sprite.y - ENEMY_HEIGHT * 0.15;
+
+      const enemyFire = tickSpawner(enemy.fireState, safeDelta);
+      enemy.fireState = enemyFire.state;
+      if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
+        const bullet = this.add.rectangle(
+          enemy.sprite.x,
+          enemy.sprite.y + ENEMY_HEIGHT / 2 + ENEMY_BULLET_SIZE / 2,
+          ENEMY_BULLET_SIZE,
+          ENEMY_BULLET_SIZE,
+          PALETTE.amber
+        );
+        bullet.setDepth(DEPTH.world);
+        firedThisFrame.push(bullet);
+      }
     }
 
-    // The obstacle's fall happens after the player has already settled at
-    // its final position for this frame (no further movement until the
-    // next pointer event), so check the fall's swept path against the
-    // player's resting position, not its full swept range.
-    if (!collided) {
-      collided = this.obstacles.some((obstacle) => {
-        const rect = this.obstacleRect(obstacle);
-        return intersects(playerRect, sweepY(rect, rect.y - fallDistance));
+    for (const bullet of this.playerBullets) {
+      bullet.y -= PLAYER_BULLET_SPEED * (safeDelta / 1000);
+    }
+
+    // The callback below reassigns this.enemies mid-iteration; that's safe
+    // because this filter iterates a snapshot of playerBullets and each
+    // callback re-reads this.enemies fresh via find(), so a killed enemy is
+    // immediately out of consideration for later bullets in the same frame.
+    const bulletTravel = PLAYER_BULLET_SPEED * (safeDelta / 1000);
+    this.playerBullets = this.playerBullets.filter((bullet) => {
+      // Both bullet and enemy moved this frame, so endpoint rects alone can
+      // let a grazing shot cross an enemy's corner without either endpoint
+      // overlapping. Sweep each over its own frame motion instead; the AABB
+      // union is slightly generous at the corners, which errs toward
+      // awarding the kid their kill — the right direction here.
+      const bulletSwept = sweepY(
+        rectAt(bullet.x, bullet.y, PLAYER_BULLET_WIDTH, PLAYER_BULLET_HEIGHT),
+        bullet.y + bulletTravel - PLAYER_BULLET_HEIGHT / 2
+      );
+      const target = this.enemies.find((enemy) => {
+        const rect = this.enemyRect(enemy);
+        return intersects(bulletSwept, sweepY(sweepX(rect, enemy.prevX - ENEMY_WIDTH / 2), rect.y - fallDistance));
       });
-    }
-
-    if (collided) {
-      this.triggerGameOver();
-    }
-    this.prevPlayerX = this.player.x;
-
-    this.obstacles = this.obstacles.filter((obstacle) => {
-      if (obstacle.sprite.y > HEIGHT + OBSTACLE_HEIGHT) {
-        obstacle.sprite.destroy();
-        obstacle.halo.destroy();
+      if (target) {
+        this.explodeEnemy(target);
+        this.enemies = this.enemies.filter((enemy) => enemy !== target);
+        this.scoreState = addPoints(this.scoreState, KILL_POINTS);
+        this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+        bullet.destroy();
+        return false;
+      }
+      // Only discard an off-screen bullet AFTER the swept check: a capped
+      // frame can carry a bullet past the top edge while crossing an enemy
+      // that has just peeked in, and that crossing must still award the kill.
+      if (bullet.y < -PLAYER_BULLET_HEIGHT) {
+        bullet.destroy();
         return false;
       }
       return true;
     });
+
+    let shotByEnemy = false;
+    this.enemyBullets = this.enemyBullets.filter((bullet) => {
+      // The player's drag movement happened before update(), while this
+      // bullet was still at its pre-fall position — so, as with the enemy
+      // checks, test the player's swept path against where the bullet WAS
+      // before also checking final rects after the fall.
+      const sweptHit = intersects(steerPath, rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE));
+      bullet.y += ENEMY_BULLET_SPEED * (safeDelta / 1000);
+      if (bullet.y > HEIGHT + ENEMY_BULLET_SIZE) {
+        bullet.destroy();
+        return false;
+      }
+      if (sweptHit || intersects(rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE), playerRect)) {
+        bullet.destroy();
+        shotByEnemy = true;
+        return false;
+      }
+      return true;
+    });
+    // Only now do this frame's fresh bullets join the pool — see the note at
+    // the spawn site.
+    this.enemyBullets.push(...firedThisFrame);
+
+    // The enemy's fall happens after the player has already settled at its
+    // final position for this frame, so check the fall's swept path against
+    // the player's resting position, not its full swept range.
+    if (!collided) {
+      collided = this.enemies.some((enemy) => {
+        const rect = this.enemyRect(enemy);
+        return intersects(playerRect, sweepY(rect, rect.y - fallDistance));
+      });
+    }
+
+    this.prevPlayerX = this.player.x;
+
+    this.enemies = this.enemies.filter((enemy) => {
+      if (enemy.sprite.y > HEIGHT + ENEMY_HEIGHT) {
+        enemy.sprite.destroy();
+        enemy.halo.destroy();
+        return false;
+      }
+      return true;
+    });
+
+    this.livesState = tickLives(this.livesState, safeDelta);
+    if (collided || shotByEnemy) {
+      const result = hit(this.livesState, INVINCIBILITY_MS);
+      this.livesState = result.state;
+      if (result.tookHit) {
+        this.updateLivesPill();
+        this.cameras.main.shake(140, 0.006);
+      }
+      if (result.dead) {
+        this.triggerGameOver();
+      }
+    }
+
+    // Blink while invincible so kids can see the shield; solid otherwise.
+    // Gated on 'playing' because triggerGameOver() (above, on this same
+    // frame if the killing hit just landed) hides the player for the crash
+    // sequence; without this gate the blink expression would run afterward
+    // in the same call and fight that.
+    if (this.state === 'playing') {
+      this.player.setAlpha(isInvincible(this.livesState) && Math.floor(_time / 100) % 2 === 0 ? 0.3 : 1);
+    }
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state === 'playing') {
       this.dragging = true;
       this.movePlayerTo(pointer.x);
+      this.firePlayerBullet();
+      this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     }
   }
 
@@ -235,28 +394,73 @@ export class GameScene extends Phaser.Scene {
     this.player.setRotation(lean);
   }
 
-  private spawnObstacle(): void {
-    const half = OBSTACLE_WIDTH / 2;
-    const x = Phaser.Math.Between(half, WIDTH - half);
+  private firePlayerBullet(): void {
+    const bullet = this.add.rectangle(
+      this.player.x,
+      PLAYER_Y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
+      PLAYER_BULLET_WIDTH,
+      PLAYER_BULLET_HEIGHT,
+      ACCENT
+    );
+    bullet.setDepth(DEPTH.world);
+    this.playerBullets.push(bullet);
+  }
+
+  private spawnEnemy(): void {
+    // Spawning baseX inside the wobble margin keeps the whole wobble arc on
+    // screen, so no per-frame clamping is needed.
+    const margin = ENEMY_WIDTH / 2 + ENEMY_WOBBLE_AMPLITUDE;
+    const baseX = Phaser.Math.Between(margin, WIDTH - margin);
     const color = HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
 
     const halo = this.add
-      .image(x, -OBSTACLE_HEIGHT, TEX.glow)
-      .setDisplaySize(OBSTACLE_WIDTH * 2.6, OBSTACLE_HEIGHT * 2)
+      .image(baseX, -ENEMY_HEIGHT, TEX.glow)
+      .setDisplaySize(ENEMY_WIDTH * 2.6, ENEMY_HEIGHT * 2)
       .setTint(color)
       .setAlpha(0.3)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(DEPTH.world - 1);
 
     const sprite = this.add
-      .image(x, -OBSTACLE_HEIGHT, ensureShardTexture(this, color))
+      .image(baseX, -ENEMY_HEIGHT, ensureShardTexture(this, color))
+      .setScale(ENEMY_SCALE)
       .setDepth(DEPTH.world);
 
-    this.obstacles.push({ sprite, halo });
+    this.enemies.push({
+      sprite,
+      halo,
+      color,
+      baseX,
+      prevX: baseX,
+      elapsedMs: 0,
+      fireState: createSpawner(ENEMY_MIN_FIRE_INTERVAL_MS, ENEMY_MAX_FIRE_INTERVAL_MS),
+    });
   }
 
-  private obstacleRect(obstacle: Obstacle): Rect {
-    return rectAt(obstacle.sprite.x, obstacle.sprite.y, OBSTACLE_WIDTH, OBSTACLE_HEIGHT);
+  private enemyRect(enemy: Enemy): Rect {
+    return rectAt(enemy.sprite.x, enemy.sprite.y, ENEMY_WIDTH, ENEMY_HEIGHT);
+  }
+
+  /** Destroys a shot-down enemy with a short burst in its own colour. */
+  private explodeEnemy(enemy: Enemy): void {
+    const burst = this.add.particles(enemy.sprite.x, enemy.sprite.y, TEX.spark, {
+      speed: { min: 60, max: 220 },
+      lifespan: { min: 200, max: 450 },
+      scale: { start: 0.7, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [enemy.color, PALETTE.text],
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    burst.setDepth(DEPTH.effects);
+    burst.explode(12);
+    this.time.delayedCall(600, () => burst.destroy());
+    enemy.sprite.destroy();
+    enemy.halo.destroy();
+  }
+
+  private updateLivesPill(): void {
+    this.livesPill.setValue('♥'.repeat(Math.max(0, this.livesState.lives)));
   }
 
   private triggerGameOver(): void {

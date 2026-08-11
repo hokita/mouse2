@@ -1,15 +1,15 @@
 export interface ScoreState {
-  elapsedMs: number;
+  points: number;
 }
 
 export function createScore(): ScoreState {
-  return { elapsedMs: 0 };
+  return { points: 0 };
 }
 
-export function tickScore(state: ScoreState, dt: number): ScoreState {
-  return { elapsedMs: state.elapsedMs + dt };
+export function addPoints(state: ScoreState, points: number): ScoreState {
+  return { points: state.points + points };
 }
 
 export function getScoreValue(state: ScoreState): number {
-  return Math.floor(state.elapsedMs / 100);
+  return state.points;
 }
