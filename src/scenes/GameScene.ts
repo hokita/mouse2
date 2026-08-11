@@ -264,12 +264,17 @@ export class GameScene extends Phaser.Scene {
     const playerHitRect = this.toRect(this.player);
     let shotByEnemy = false;
     this.enemyBullets = this.enemyBullets.filter((bullet) => {
+      // The player's drag movement happened before update(), while this
+      // bullet was still at its pre-fall position — so, as with the enemy
+      // checks above, test the player's swept path against where the
+      // bullet WAS before also checking final rects after the fall.
+      const sweptHit = intersects(playerSweptRect, this.toRect(bullet));
       bullet.y += ENEMY_BULLET_SPEED * (safeDelta / 1000);
       if (bullet.y > HEIGHT + ENEMY_BULLET_SIZE) {
         bullet.destroy();
         return false;
       }
-      if (intersects(this.toRect(bullet), playerHitRect)) {
+      if (sweptHit || intersects(this.toRect(bullet), playerHitRect)) {
         bullet.destroy();
         shotByEnemy = true;
         return false;
