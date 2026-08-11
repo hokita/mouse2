@@ -29,6 +29,8 @@ const PLAYER_BULLET_SPEED = 500;
 const PLAYER_BULLET_WIDTH = 8;
 const PLAYER_BULLET_HEIGHT = 16;
 const KILL_POINTS = 10;
+const ENEMY_BULLET_SPEED = 150;
+const ENEMY_BULLET_SIZE = 10;
 
 type GameState = 'playing' | 'gameOver';
 
@@ -44,6 +46,7 @@ export class GameScene extends Phaser.Scene {
   private prevPlayerX!: number;
   private enemies: Enemy[] = [];
   private playerBullets: Phaser.GameObjects.Rectangle[] = [];
+  private enemyBullets: Phaser.GameObjects.Rectangle[] = [];
   private fireState!: SpawnerState;
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
@@ -153,6 +156,10 @@ export class GameScene extends Phaser.Scene {
       bullet.destroy();
     }
     this.playerBullets = [];
+    for (const bullet of this.enemyBullets) {
+      bullet.destroy();
+    }
+    this.enemyBullets = [];
     this.player.x = WIDTH / 2;
     this.prevPlayerX = WIDTH / 2;
     this.dragging = false;
@@ -191,6 +198,19 @@ export class GameScene extends Phaser.Scene {
       enemy.elapsedMs += safeDelta;
       enemy.sprite.y += fallDistance;
       enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
+
+      const enemyFire = tickSpawner(enemy.fireState, safeDelta);
+      enemy.fireState = enemyFire.state;
+      if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
+        const bullet = this.add.rectangle(
+          enemy.sprite.x,
+          enemy.sprite.y + ENEMY_SIZE / 2 + ENEMY_BULLET_SIZE / 2,
+          ENEMY_BULLET_SIZE,
+          ENEMY_BULLET_SIZE,
+          0xff8800
+        );
+        this.enemyBullets.push(bullet);
+      }
     }
 
     for (const bullet of this.playerBullets) {
@@ -215,6 +235,22 @@ export class GameScene extends Phaser.Scene {
       return true;
     });
 
+    const playerHitRect = this.toRect(this.player);
+    let shotByEnemy = false;
+    this.enemyBullets = this.enemyBullets.filter((bullet) => {
+      bullet.y += ENEMY_BULLET_SPEED * (safeDelta / 1000);
+      if (bullet.y > HEIGHT + ENEMY_BULLET_SIZE) {
+        bullet.destroy();
+        return false;
+      }
+      if (intersects(this.toRect(bullet), playerHitRect)) {
+        bullet.destroy();
+        shotByEnemy = true;
+        return false;
+      }
+      return true;
+    });
+
     // Enemy speeds are low (≤ ~20px per capped frame, well under
     // ENEMY_SIZE), so a plain overlap check after the move can't miss a
     // pass-through; no enemy-side sweep needed.
@@ -223,7 +259,7 @@ export class GameScene extends Phaser.Scene {
       collided = this.enemies.some((enemy) => intersects(playerRect, this.toRect(enemy.sprite)));
     }
 
-    if (collided) {
+    if (collided || shotByEnemy) {
       this.triggerGameOver();
     }
     this.prevPlayerX = this.player.x;
