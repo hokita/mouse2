@@ -62,21 +62,43 @@ export class GameScene extends Phaser.Scene {
     });
     this.gameOverText.setOrigin(0.5, 0.5);
 
-    this.restartButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 20, '', {
+    // Text is set to its final non-empty label here, BEFORE setInteractive(),
+    // because setInteractive({ useHandCursor: true }) with no explicit hitArea
+    // calls setHitAreaFromTexture(), which snapshots the object's width/height
+    // ONCE at call time into a fixed hitArea. setText() later (in
+    // triggerGameOver()) recomputes width/height but never touches hitArea,
+    // so if the label started as '' the hitArea would stay frozen at ~0px
+    // wide forever — only a hairline sliver would be tappable. Visibility is
+    // toggled instead of the text, so the hitArea never goes stale.
+    this.restartButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 20, 'Tap to Restart', {
       fontSize: '22px',
       color: '#0000ff',
     });
     this.restartButton.setOrigin(0.5, 0.5);
     this.restartButton.setInteractive({ useHandCursor: true });
-    this.restartButton.on('pointerdown', () => this.resetState());
+    this.restartButton.on('pointerdown', () => {
+      // Defense in depth: the button is only meant to act during Game Over.
+      // Visibility already gates this in normal operation, but Phaser does
+      // not itself skip input processing for invisible objects, so this
+      // guard keeps the handler inert during "playing" independent of that.
+      if (this.state !== 'gameOver') {
+        return;
+      }
+      this.resetState();
+    });
 
-    this.menuButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 70, '', {
+    this.menuButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 70, 'Back to Menu', {
       fontSize: '22px',
       color: '#0000ff',
     });
     this.menuButton.setOrigin(0.5, 0.5);
     this.menuButton.setInteractive({ useHandCursor: true });
-    this.menuButton.on('pointerdown', () => this.scene.start('MenuScene'));
+    this.menuButton.on('pointerdown', () => {
+      if (this.state !== 'gameOver') {
+        return;
+      }
+      this.scene.start('MenuScene');
+    });
 
     this.scoreText.setDepth(10);
     this.gameOverText.setDepth(10);
@@ -92,8 +114,8 @@ export class GameScene extends Phaser.Scene {
     this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
     this.scoreText.setText('Score: 0');
     this.gameOverText.setText('');
-    this.restartButton.setText('');
-    this.menuButton.setText('');
+    this.restartButton.setVisible(false);
+    this.menuButton.setVisible(false);
     for (const obstacle of this.obstacles) {
       obstacle.destroy();
     }
@@ -247,7 +269,7 @@ export class GameScene extends Phaser.Scene {
   private triggerGameOver(): void {
     this.state = 'gameOver';
     this.gameOverText.setText(`Game Over\nScore: ${getScoreValue(this.scoreState)}`);
-    this.restartButton.setText('Tap to Restart');
-    this.menuButton.setText('Back to Menu');
+    this.restartButton.setVisible(true);
+    this.menuButton.setVisible(true);
   }
 }
