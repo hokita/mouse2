@@ -36,6 +36,8 @@ export class GameScene extends Phaser.Scene {
   private spawnerState!: SpawnerState;
   private scoreText!: Phaser.GameObjects.Text;
   private gameOverText!: Phaser.GameObjects.Text;
+  private restartButton!: Phaser.GameObjects.Text;
+  private menuButton!: Phaser.GameObjects.Text;
   private state!: GameState;
 
   constructor() {
@@ -53,15 +55,33 @@ export class GameScene extends Phaser.Scene {
       color: '#000000',
     });
 
-    this.gameOverText = this.add.text(WIDTH / 2, HEIGHT / 2, '', {
+    this.gameOverText = this.add.text(WIDTH / 2, HEIGHT / 2 - 60, '', {
       fontSize: '28px',
       color: '#000000',
       align: 'center',
     });
     this.gameOverText.setOrigin(0.5, 0.5);
 
+    this.restartButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 20, '', {
+      fontSize: '22px',
+      color: '#0000ff',
+    });
+    this.restartButton.setOrigin(0.5, 0.5);
+    this.restartButton.setInteractive({ useHandCursor: true });
+    this.restartButton.on('pointerdown', () => this.resetState());
+
+    this.menuButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 70, '', {
+      fontSize: '22px',
+      color: '#0000ff',
+    });
+    this.menuButton.setOrigin(0.5, 0.5);
+    this.menuButton.setInteractive({ useHandCursor: true });
+    this.menuButton.on('pointerdown', () => this.scene.start('MenuScene'));
+
     this.scoreText.setDepth(10);
     this.gameOverText.setDepth(10);
+    this.restartButton.setDepth(10);
+    this.menuButton.setDepth(10);
 
     this.resetState();
   }
@@ -72,6 +92,8 @@ export class GameScene extends Phaser.Scene {
     this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
     this.scoreText.setText('Score: 0');
     this.gameOverText.setText('');
+    this.restartButton.setText('');
+    this.menuButton.setText('');
     for (const obstacle of this.obstacles) {
       obstacle.destroy();
     }
@@ -139,8 +161,6 @@ export class GameScene extends Phaser.Scene {
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state === 'playing') {
       this.movePlayerTo(pointer.x);
-    } else {
-      this.restart();
     }
   }
 
@@ -226,12 +246,8 @@ export class GameScene extends Phaser.Scene {
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
-    this.gameOverText.setText(
-      `Game Over\nScore: ${getScoreValue(this.scoreState)}\nTap to Restart`
-    );
-  }
-
-  private restart(): void {
-    this.resetState();
+    this.gameOverText.setText(`Game Over\nScore: ${getScoreValue(this.scoreState)}`);
+    this.restartButton.setText('Tap to Restart');
+    this.menuButton.setText('Back to Menu');
   }
 }
