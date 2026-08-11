@@ -28,8 +28,12 @@ const ACCENT = PALETTE.cyan;
 const PLAYER_SIZE = SHIP_SIZE;
 const PLAYER_MARGIN_BOTTOM = 120;
 const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
-const ENEMY_WIDTH = SHARD_WIDTH;
-const ENEMY_HEIGHT = SHARD_HEIGHT;
+// The shard texture is 30×50, but the design calls for ~50px-wide targets
+// that 3–5 year olds can actually hit — so enemies render the shard scaled
+// up uniformly and the hitbox tracks the displayed size (art = hitbox).
+const ENEMY_SCALE = 5 / 3;
+const ENEMY_WIDTH = SHARD_WIDTH * ENEMY_SCALE;
+const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
 const ENEMY_FALL_SPEED = 60;
 const ENEMY_WOBBLE_AMPLITUDE = 60;
 const ENEMY_WOBBLE_PERIOD_MS = 2000;
@@ -44,9 +48,10 @@ const HAZARD_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.amber, PALETTE.mint
 // Caps how much sim time a single frame advances timers and movement by, so
 // a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
 // cap, the fastest closing pair (a 500px/s player bullet vs. a 60px/s
-// falling enemy) closes 56px in one step, less than the 66px combined
-// height of the bullet (16) and enemy (50), so nothing can tunnel through
-// a collision target.
+// falling enemy) closes 56px in one step, well under the ~99px combined
+// height of the bullet (16) and enemy (~83) — and the kill check sweeps
+// both sides' frame motion anyway, so nothing can tunnel through a
+// collision target.
 const MAX_DELTA_MS = 100;
 const PLAYER_FIRE_INTERVAL_MS = 400;
 const PLAYER_BULLET_SPEED = 500;
@@ -266,10 +271,6 @@ export class GameScene extends Phaser.Scene {
     // immediately out of consideration for later bullets in the same frame.
     const bulletTravel = PLAYER_BULLET_SPEED * (safeDelta / 1000);
     this.playerBullets = this.playerBullets.filter((bullet) => {
-      if (bullet.y < -PLAYER_BULLET_HEIGHT) {
-        bullet.destroy();
-        return false;
-      }
       // Both bullet and enemy moved this frame, so endpoint rects alone can
       // let a grazing shot cross an enemy's corner without either endpoint
       // overlapping. Sweep each over its own frame motion instead; the AABB
@@ -288,6 +289,13 @@ export class GameScene extends Phaser.Scene {
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
         this.scoreState = addPoints(this.scoreState, KILL_POINTS);
         this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+        bullet.destroy();
+        return false;
+      }
+      // Only discard an off-screen bullet AFTER the swept check: a capped
+      // frame can carry a bullet past the top edge while crossing an enemy
+      // that has just peeked in, and that crossing must still award the kill.
+      if (bullet.y < -PLAYER_BULLET_HEIGHT) {
         bullet.destroy();
         return false;
       }
@@ -415,6 +423,7 @@ export class GameScene extends Phaser.Scene {
 
     const sprite = this.add
       .image(baseX, -ENEMY_HEIGHT, ensureShardTexture(this, color))
+      .setScale(ENEMY_SCALE)
       .setDepth(DEPTH.world);
 
     this.enemies.push({
