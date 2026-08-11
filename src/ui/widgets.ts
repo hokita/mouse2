@@ -353,8 +353,27 @@ export function createGameOverOverlay(scene: Phaser.Scene, options: GameOverOpti
 
 // --- misc -----------------------------------------------------------------
 
-/** Fades the camera out and then hands over to another scene. */
+/** Scenes with a hand-over already under way — see `transitionTo`. */
+const departing = new WeakSet<Phaser.Scene>();
+
+/**
+ * Fades the camera out and then hands over to another scene.
+ *
+ * At most one hand-over per scene: a second call while the fade is still
+ * running is ignored. Without that, each call would queue its own
+ * FADE_OUT_COMPLETE listener, every one of them would fire together, and the
+ * scene that happened to start last would win — so a stray second tap during
+ * the fade could take the player somewhere they never chose.
+ */
 export function transitionTo(scene: Phaser.Scene, key: string): void {
+  if (departing.has(scene)) {
+    return;
+  }
+  departing.add(scene);
+  // Scene instances outlive the scenes they run, so the flag has to be
+  // cleared on the way out — otherwise a second visit could never leave.
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => departing.delete(scene));
+
   scene.cameras.main.fadeOut(220, 0, 0, 0);
   scene.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
     scene.scene.start(key);

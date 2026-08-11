@@ -24,12 +24,21 @@ const FIRST_CARD_Y = HEIGHT * 0.53;
 
 export class MenuScene extends Phaser.Scene {
   private stars!: Starfield;
+  private cards: Phaser.GameObjects.Container[] = [];
+  /** True once a game has been chosen and the hand-over fade has begun. */
+  private launching = false;
 
   constructor() {
     super('MenuScene');
   }
 
   create(): void {
+    // The Scene instance is reused on every visit but its display list is
+    // not, so both of these have to start fresh — a stale `launching` would
+    // leave the menu permanently unresponsive on the way back in.
+    this.cards = [];
+    this.launching = false;
+
     this.stars = createStarBackdrop(this);
     ensureFxTextures(this);
 
@@ -154,14 +163,20 @@ export class MenuScene extends Phaser.Scene {
     card.setSize(CARD_WIDTH, CARD_HEIGHT);
     card.setInteractive(containerHitArea(CARD_WIDTH, CARD_HEIGHT));
 
-    let launching = false;
+    this.cards.push(card);
+
     card.on('pointerdown', () => {
-      // The camera fade below runs for a fifth of a second; without this
-      // guard a quick double tap would queue two scene starts.
-      if (launching) {
+      // One guard for the whole menu rather than one per card. The camera
+      // fade below runs for a fifth of a second, and a card tapped during it
+      // would otherwise start a second scene on top of the chosen one —
+      // landing the player in a game they did not pick.
+      if (this.launching) {
         return;
       }
-      launching = true;
+      this.launching = true;
+      for (const other of this.cards) {
+        other.disableInteractive();
+      }
       paint(true);
       this.tweens.add({
         targets: card,
@@ -173,7 +188,7 @@ export class MenuScene extends Phaser.Scene {
       transitionTo(this, game.sceneKey);
     });
     card.on('pointerout', () => {
-      if (!launching) {
+      if (!this.launching) {
         paint(false);
       }
     });
