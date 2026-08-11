@@ -27,7 +27,10 @@ const ACCENT = PALETTE.cyan;
 
 const PLAYER_SIZE = SHIP_SIZE;
 const PLAYER_MARGIN_BOTTOM = 120;
-const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
+const PLAYER_START_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
+// The ship now flies the whole screen, but stops short of the score and
+// hearts pills so it can never hide the HUD.
+const PLAYER_MIN_Y = 110;
 // The shard texture is 30×50, but the design calls for ~50px-wide targets
 // that 3–5 year olds can actually hit — so enemies render the shard scaled
 // up uniformly and the hitbox tracks the displayed size (art = hitbox).
@@ -82,6 +85,7 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Image;
   private thruster!: Phaser.GameObjects.Particles.ParticleEmitter;
   private prevPlayerX!: number;
+  private prevPlayerY!: number;
   private enemies: Enemy[] = [];
   private playerBullets: Phaser.GameObjects.Rectangle[] = [];
   private enemyBullets: Phaser.GameObjects.Rectangle[] = [];
@@ -124,7 +128,7 @@ export class GameScene extends Phaser.Scene {
     this.thruster.setDepth(DEPTH.world - 1);
 
     this.player = this.add
-      .image(WIDTH / 2, PLAYER_Y, ensureShipTexture(this))
+      .image(WIDTH / 2, PLAYER_START_Y, ensureShipTexture(this))
       .setDepth(DEPTH.world);
     this.thruster.startFollow(this.player, 0, PLAYER_SIZE / 2 - 6);
 
@@ -188,8 +192,10 @@ export class GameScene extends Phaser.Scene {
     }
     this.enemyBullets = [];
     this.player.x = WIDTH / 2;
+    this.player.y = PLAYER_START_Y;
     this.player.setVisible(true).setAlpha(1).setRotation(0);
     this.prevPlayerX = WIDTH / 2;
+    this.prevPlayerY = PLAYER_START_Y;
     this.dragging = false;
     this.thruster.start();
   }
@@ -229,8 +235,11 @@ export class GameScene extends Phaser.Scene {
     // before update() runs, while every enemy and bullet was still at its
     // pre-move position — so check the player's swept path against where
     // things WERE, not where they're about to land.
-    const playerRect = rectAt(this.player.x, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE);
-    const steerPath = sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2);
+    const playerRect = rectAt(this.player.x, this.player.y, PLAYER_SIZE, PLAYER_SIZE);
+    const steerPath = sweepY(
+      sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2),
+      this.prevPlayerY - PLAYER_SIZE / 2
+    );
     let collided = this.enemies.some((enemy) => intersects(steerPath, this.enemyRect(enemy)));
 
     // Bullets fired this frame are collected separately and appended after
@@ -336,6 +345,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.prevPlayerX = this.player.x;
+    this.prevPlayerY = this.player.y;
 
     this.enemies = this.enemies.filter((enemy) => {
       if (enemy.sprite.y > HEIGHT + ENEMY_HEIGHT) {
@@ -372,7 +382,7 @@ export class GameScene extends Phaser.Scene {
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state === 'playing') {
       this.dragging = true;
-      this.movePlayerTo(pointer.x);
+      this.movePlayerTo(pointer.x, pointer.y);
       this.firePlayerBullet();
       this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     }
@@ -382,22 +392,25 @@ export class GameScene extends Phaser.Scene {
     if (this.state !== 'playing' || !this.dragging || !pointer.isDown) {
       return;
     }
-    this.movePlayerTo(pointer.x);
+    this.movePlayerTo(pointer.x, pointer.y);
   }
 
-  private movePlayerTo(x: number): void {
+  private movePlayerTo(x: number, y: number): void {
     const half = PLAYER_SIZE / 2;
     const next = Phaser.Math.Clamp(x, half, WIDTH - half);
+    const nextY = Phaser.Math.Clamp(y, PLAYER_MIN_Y, HEIGHT - half);
     // Bank into the turn — the ship leans toward wherever the thumb pulls it.
+    // Horizontal only: a climb or dive should not roll the ship.
     const lean = Phaser.Math.Clamp((next - this.player.x) * 0.03, -0.28, 0.28);
     this.player.x = next;
+    this.player.y = nextY;
     this.player.setRotation(lean);
   }
 
   private firePlayerBullet(): void {
     const bullet = this.add.rectangle(
       this.player.x,
-      PLAYER_Y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
+      this.player.y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
       PLAYER_BULLET_WIDTH,
       PLAYER_BULLET_HEIGHT,
       ACCENT
