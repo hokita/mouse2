@@ -5,33 +5,39 @@ import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { intersects } from '../core/collision';
 import type { Rect } from '../core/collision';
+import { wobbleX } from '../core/wobble';
 import { WIDTH, HEIGHT } from '../gameConfig';
 
 const PLAYER_SIZE = 40;
 const PLAYER_MARGIN_BOTTOM = 120;
 const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
-const OBSTACLE_WIDTH = 30;
-const OBSTACLE_HEIGHT = 50;
-const OBSTACLE_SPEED = 300;
-const MIN_SPAWN_INTERVAL_MS = 800;
-const MAX_SPAWN_INTERVAL_MS = 1800;
-// Caps how much sim time a single frame advances score/spawn/obstacle-fall
-// timing by. At the cap, an obstacle falls OBSTACLE_SPEED * (MAX_DELTA_MS /
-// 1000) = 30px in one step — well under the player/obstacle size, so a long
-// stalled frame (e.g. a backgrounded tab) can't let an obstacle skip past
-// the player without ever overlapping it. This bound only holds while
-// OBSTACLE_SPEED * (MAX_DELTA_MS / 1000) <= PLAYER_SIZE + OBSTACLE_HEIGHT
-// (currently 30 <= 90, i.e. safe up to OBSTACLE_SPEED = 900) — revisit this
-// comment and MAX_DELTA_MS together if OBSTACLE_SPEED ever increases (e.g.
-// a difficulty ramp).
+const ENEMY_SIZE = 50;
+const ENEMY_FALL_SPEED = 60;
+const ENEMY_WOBBLE_AMPLITUDE = 60;
+const ENEMY_WOBBLE_PERIOD_MS = 2000;
+const ENEMY_MIN_SPAWN_INTERVAL_MS = 1500;
+const ENEMY_MAX_SPAWN_INTERVAL_MS = 2500;
+const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
+const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
+// Caps how much sim time a single frame advances timers and movement by, so
+// a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
+// cap the fastest object (a 500px/s player bullet) moves 50px in one step,
+// less than ENEMY_SIZE, so nothing can tunnel through a collision target.
 const MAX_DELTA_MS = 100;
 
 type GameState = 'playing' | 'gameOver';
 
+interface Enemy {
+  sprite: Phaser.GameObjects.Rectangle;
+  baseX: number;
+  elapsedMs: number;
+  fireState: SpawnerState;
+}
+
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Rectangle;
   private prevPlayerX!: number;
-  private obstacles: Phaser.GameObjects.Rectangle[] = [];
+  private enemies: Enemy[] = [];
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
   private scoreText!: Phaser.GameObjects.Text;
@@ -126,15 +132,15 @@ export class GameScene extends Phaser.Scene {
   private resetState(): void {
     this.state = 'playing';
     this.scoreState = createScore();
-    this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
+    this.spawnerState = createSpawner(ENEMY_MIN_SPAWN_INTERVAL_MS, ENEMY_MAX_SPAWN_INTERVAL_MS);
     this.scoreText.setText('Score: 0');
     this.gameOverText.setText('');
     this.restartButton.setVisible(false);
     this.menuButton.setVisible(false);
-    for (const obstacle of this.obstacles) {
-      obstacle.destroy();
+    for (const enemy of this.enemies) {
+      enemy.sprite.destroy();
     }
-    this.obstacles = [];
+    this.enemies = [];
     this.player.x = WIDTH / 2;
     this.prevPlayerX = WIDTH / 2;
     this.dragging = false;
@@ -150,33 +156,29 @@ export class GameScene extends Phaser.Scene {
     const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
     if (spawnResult.shouldSpawn) {
-      this.spawnObstacle();
+      this.spawnEnemy();
     }
 
-    const fallDistance = OBSTACLE_SPEED * (safeDelta / 1000);
+    const fallDistance = ENEMY_FALL_SPEED * (safeDelta / 1000);
 
-    // All of this frame's player movement happens via pointer events fired
-    // before update() runs, while every obstacle was still at its pre-fall
-    // position — so check the player's swept path against where obstacles
-    // WERE, not a blanket union with where they're about to land (which
-    // would report a hit even if the player had already cleared an x
-    // before the obstacle ever fell within reach).
+    // Player movement happened via pointer events before update(), while
+    // enemies were still at their pre-move positions — sweep the player's
+    // path against where enemies WERE.
     const playerSweptRect = this.playerSweptRect();
-    let collided = this.obstacles.some((obstacle) => intersects(playerSweptRect, this.toRect(obstacle)));
+    let collided = this.enemies.some((enemy) => intersects(playerSweptRect, this.toRect(enemy.sprite)));
 
-    for (const obstacle of this.obstacles) {
-      obstacle.y += fallDistance;
+    for (const enemy of this.enemies) {
+      enemy.elapsedMs += safeDelta;
+      enemy.sprite.y += fallDistance;
+      enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
     }
 
-    // The obstacle's fall happens after the player has already settled at
-    // its final position for this frame (no further movement until the
-    // next pointer event), so check the fall's swept path against the
-    // player's resting position, not its full swept range.
+    // Enemy speeds are low (≤ ~20px per capped frame, well under
+    // ENEMY_SIZE), so a plain overlap check after the move can't miss a
+    // pass-through; no enemy-side sweep needed.
     if (!collided) {
       const playerRect = this.toRect(this.player);
-      collided = this.obstacles.some((obstacle) =>
-        intersects(playerRect, this.obstacleSweptRect(obstacle, fallDistance))
-      );
+      collided = this.enemies.some((enemy) => intersects(playerRect, this.toRect(enemy.sprite)));
     }
 
     if (collided) {
@@ -184,9 +186,9 @@ export class GameScene extends Phaser.Scene {
     }
     this.prevPlayerX = this.player.x;
 
-    this.obstacles = this.obstacles.filter((obstacle) => {
-      if (obstacle.y > HEIGHT + OBSTACLE_HEIGHT) {
-        obstacle.destroy();
+    this.enemies = this.enemies.filter((enemy) => {
+      if (enemy.sprite.y > HEIGHT + ENEMY_SIZE) {
+        enemy.sprite.destroy();
         return false;
       }
       return true;
@@ -212,11 +214,17 @@ export class GameScene extends Phaser.Scene {
     this.player.x = Phaser.Math.Clamp(x, half, WIDTH - half);
   }
 
-  private spawnObstacle(): void {
-    const half = OBSTACLE_WIDTH / 2;
-    const x = Phaser.Math.Between(half, WIDTH - half);
-    const obstacle = this.add.rectangle(x, -OBSTACLE_HEIGHT, OBSTACLE_WIDTH, OBSTACLE_HEIGHT, 0xff0000);
-    this.obstacles.push(obstacle);
+  private spawnEnemy(): void {
+    const half = ENEMY_SIZE / 2;
+    const margin = half + ENEMY_WOBBLE_AMPLITUDE;
+    const baseX = Phaser.Math.Between(margin, WIDTH - margin);
+    const sprite = this.add.rectangle(baseX, -ENEMY_SIZE, ENEMY_SIZE, ENEMY_SIZE, 0xff0000);
+    this.enemies.push({
+      sprite,
+      baseX,
+      elapsedMs: 0,
+      fireState: createSpawner(ENEMY_MIN_FIRE_INTERVAL_MS, ENEMY_MAX_FIRE_INTERVAL_MS),
+    });
   }
 
   private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
@@ -233,10 +241,10 @@ export class GameScene extends Phaser.Scene {
   // position at the end of the previous frame to its current position),
   // so a single fast drag/tap that jumps the player's x — pointer events
   // move it instantly, independent of update()'s per-frame delta — can't
-  // pass through an obstacle without ever overlapping it on a sampled
+  // pass through an enemy without ever overlapping it on a sampled
   // frame. Only x is swept — the player never moves vertically. Checked
-  // against each obstacle's PRE-fall position (see update()) since all of
-  // this sweep happened before this frame's fall was applied.
+  // against each enemy's PRE-move position (see update()) since all of
+  // this sweep happened before this frame's fall/wobble was applied.
   private playerSweptRect(): Rect {
     const currentX = this.player.x;
     this.player.x = this.prevPlayerX;
@@ -252,31 +260,6 @@ export class GameScene extends Phaser.Scene {
       y: currentBounds.y,
       width: right - left,
       height: currentBounds.height,
-    };
-  }
-
-  // Bounds of the vertical span an obstacle fell through this frame (from
-  // its position before this frame's fall to its position now). Checked
-  // against the player's FINAL (unswept) rect in update(): the obstacle's
-  // fall happens after the player has already settled at its position for
-  // this frame, so there's nothing left of the player's own motion to
-  // sweep at this point — only the obstacle's. Only y is swept — obstacles
-  // never move horizontally.
-  private obstacleSweptRect(obstacle: Phaser.GameObjects.Rectangle, fallDistance: number): Rect {
-    const currentY = obstacle.y;
-    obstacle.y = currentY - fallDistance;
-    const prevBounds = obstacle.getBounds();
-    obstacle.y = currentY;
-    const currentBounds = obstacle.getBounds();
-
-    const top = Math.min(prevBounds.y, currentBounds.y);
-    const bottom = Math.max(prevBounds.y + prevBounds.height, currentBounds.y + currentBounds.height);
-
-    return {
-      x: currentBounds.x,
-      y: top,
-      width: currentBounds.width,
-      height: bottom - top,
     };
   }
 
