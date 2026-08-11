@@ -1,0 +1,15 @@
+{
+  "name": "mouse2",
+  "short_name": "mouse2",
+  "description": "Two small games. One thumb.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#070a1a",
+  "background_color": "#05070f",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
