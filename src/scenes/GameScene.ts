@@ -3,18 +3,37 @@ import { createScore, tickScore, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
-import { intersects } from '../core/collision';
+import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
+import { sweepX, sweepY } from '../core/sweep';
 import { WIDTH, HEIGHT } from '../gameConfig';
+import { PALETTE } from '../ui/theme';
+import {
+  SHARD_HEIGHT,
+  SHARD_WIDTH,
+  SHIP_SIZE,
+  TEX,
+  ensureFxTextures,
+  ensureShardTexture,
+  ensureShipTexture,
+} from '../ui/textures';
+import { DEPTH, createGameOverOverlay, createStarBackdrop, createStatPill, transitionTo } from '../ui/widgets';
+import type { GameOverOverlay, Starfield, StatPill } from '../ui/widgets';
 
-const PLAYER_SIZE = 40;
+const ACCENT = PALETTE.cyan;
+
+const PLAYER_SIZE = SHIP_SIZE;
 const PLAYER_MARGIN_BOTTOM = 120;
 const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
-const OBSTACLE_WIDTH = 30;
-const OBSTACLE_HEIGHT = 50;
+const OBSTACLE_WIDTH = SHARD_WIDTH;
+const OBSTACLE_HEIGHT = SHARD_HEIGHT;
 const OBSTACLE_SPEED = 300;
 const MIN_SPAWN_INTERVAL_MS = 800;
 const MAX_SPAWN_INTERVAL_MS = 1800;
+
+/** Debris comes in four flavours purely so the field never looks uniform. */
+const HAZARD_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.amber, PALETTE.mint];
+
 // Caps how much sim time a single frame advances score/spawn/obstacle-fall
 // timing by. At the cap, an obstacle falls OBSTACLE_SPEED * (MAX_DELTA_MS /
 // 1000) = 30px in one step — well under the player/obstacle size, so a long
@@ -28,16 +47,23 @@ const MAX_DELTA_MS = 100;
 
 type GameState = 'playing' | 'gameOver';
 
+interface Obstacle {
+  sprite: Phaser.GameObjects.Image;
+  /** Soft halo trailing the shard; purely decorative. */
+  halo: Phaser.GameObjects.Image;
+}
+
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle;
+  private stars!: Starfield;
+  private player!: Phaser.GameObjects.Image;
+  private thruster!: Phaser.GameObjects.Particles.ParticleEmitter;
   private prevPlayerX!: number;
-  private obstacles: Phaser.GameObjects.Rectangle[] = [];
+  private obstacles: Obstacle[] = [];
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
-  private scoreText!: Phaser.GameObjects.Text;
-  private gameOverText!: Phaser.GameObjects.Text;
-  private restartButton!: Phaser.GameObjects.Text;
-  private menuButton!: Phaser.GameObjects.Text;
+  private scorePill!: StatPill;
+  private overlay!: GameOverOverlay;
+  private overlayShown = false;
   private state!: GameState;
   private dragging = false;
 
@@ -46,98 +72,76 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.player = this.add.rectangle(WIDTH / 2, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE, 0x00ff00);
+    this.stars = createStarBackdrop(this);
+    ensureFxTextures(this);
+
+    this.add
+      .image(WIDTH / 2, 0, TEX.topFade)
+      .setOrigin(0.5, 0)
+      .setDisplaySize(WIDTH, 200)
+      .setAlpha(0.9)
+      .setDepth(DEPTH.effects);
+
+    this.thruster = this.add.particles(0, 0, TEX.spark, {
+      speedY: { min: 70, max: 190 },
+      speedX: { min: -22, max: 22 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.85, end: 0 },
+      lifespan: 420,
+      frequency: 26,
+      tint: [ACCENT, PALETTE.violet],
+      blendMode: 'ADD',
+    });
+    this.thruster.setDepth(DEPTH.world - 1);
+
+    this.player = this.add
+      .image(WIDTH / 2, PLAYER_Y, ensureShipTexture(this))
+      .setDepth(DEPTH.world);
+    this.thruster.startFollow(this.player, 0, PLAYER_SIZE / 2 - 6);
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
 
-    this.scoreText = this.add.text(16, 16, 'Score: 0', {
-      fontSize: '20px',
-      color: '#000000',
+    this.scorePill = createStatPill(this, {
+      x: 18,
+      y: 18,
+      width: 150,
+      label: 'Score',
+      accent: ACCENT,
     });
 
-    this.gameOverText = this.add.text(WIDTH / 2, HEIGHT / 2 - 60, '', {
-      fontSize: '28px',
-      color: '#000000',
-      align: 'center',
+    this.overlay = createGameOverOverlay(this, {
+      accent: ACCENT,
+      onRestart: () => this.resetState(),
+      onMenu: () => transitionTo(this, 'MenuScene'),
+      // Gated on the overlay actually being on screen, not merely on the run
+      // being over: the card animates in a beat after the crash, and Phaser
+      // routes taps to hidden objects, so an early tap would otherwise hit a
+      // button nobody can see yet.
+      isArmed: () => this.state === 'gameOver' && this.overlayShown,
     });
-    this.gameOverText.setOrigin(0.5, 0.5);
 
-    // Text is set to its final non-empty label here, BEFORE setInteractive(),
-    // because setInteractive({ useHandCursor: true }) with no explicit hitArea
-    // calls setHitAreaFromTexture(), which snapshots the object's width/height
-    // ONCE at call time into a fixed hitArea. setText() later (in
-    // triggerGameOver()) recomputes width/height but never touches hitArea,
-    // so if the label started as '' the hitArea would stay frozen at ~0px
-    // wide forever — only a hairline sliver would be tappable. Visibility is
-    // toggled instead of the text, so the hitArea never goes stale.
-    this.restartButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 20, 'Tap to Restart', {
-      fontSize: '22px',
-      color: '#0000ff',
-    });
-    this.restartButton.setOrigin(0.5, 0.5);
-    this.restartButton.setInteractive({ useHandCursor: true });
-    this.restartButton.on(
-      'pointerdown',
-      (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-        // Defense in depth: the button is only meant to act during Game Over.
-        // Visibility already gates this in normal operation, but Phaser does
-        // not itself skip input processing for invisible objects, so this
-        // guard keeps the handler inert during "playing" independent of that.
-        if (this.state !== 'gameOver') {
-          return;
-        }
-        // Stop this tap from also reaching the scene-wide pointerdown handler
-        // (handlePointerDown): without this, resetState() below flips state
-        // to 'playing' synchronously, and the same tap's coordinates would
-        // then be read by handlePointerDown as a drag-move command, snapping
-        // the just-centered player to wherever on this button was tapped.
-        event.stopPropagation();
-        this.resetState();
-      }
-    );
-
-    this.menuButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 70, 'Back to Menu', {
-      fontSize: '22px',
-      color: '#0000ff',
-    });
-    this.menuButton.setOrigin(0.5, 0.5);
-    this.menuButton.setInteractive({ useHandCursor: true });
-    this.menuButton.on(
-      'pointerdown',
-      (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
-        if (this.state !== 'gameOver') {
-          return;
-        }
-        // Same defensive stopPropagation() as restartButton — see its comment.
-        event.stopPropagation();
-        this.scene.start('MenuScene');
-      }
-    );
-
-    this.scoreText.setDepth(10);
-    this.gameOverText.setDepth(10);
-    this.restartButton.setDepth(10);
-    this.menuButton.setDepth(10);
-
+    this.cameras.main.fadeIn(280, 0, 0, 0);
     this.resetState();
   }
 
   private resetState(): void {
     this.state = 'playing';
+    this.overlayShown = false;
+    this.overlay.hide();
     this.scoreState = createScore();
     this.spawnerState = createSpawner(MIN_SPAWN_INTERVAL_MS, MAX_SPAWN_INTERVAL_MS);
-    this.scoreText.setText('Score: 0');
-    this.gameOverText.setText('');
-    this.restartButton.setVisible(false);
-    this.menuButton.setVisible(false);
+    this.scorePill.setValue('0');
     for (const obstacle of this.obstacles) {
-      obstacle.destroy();
+      obstacle.sprite.destroy();
+      obstacle.halo.destroy();
     }
     this.obstacles = [];
     this.player.x = WIDTH / 2;
+    this.player.setVisible(true).setAlpha(1).setRotation(0);
     this.prevPlayerX = WIDTH / 2;
     this.dragging = false;
+    this.thruster.start();
   }
 
   update(_time: number, delta: number): void {
@@ -147,8 +151,13 @@ export class GameScene extends Phaser.Scene {
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
 
+    // The bank applied while steering (see movePlayerTo) relaxes back to level
+    // as soon as the thumb stops moving. Cosmetic only — the collision box is
+    // axis-aligned whatever the sprite is doing.
+    this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
+
     this.scoreState = tickScore(this.scoreState, safeDelta);
-    this.scoreText.setText(`Score: ${getScoreValue(this.scoreState)}`);
+    this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
 
     const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
@@ -157,6 +166,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     const fallDistance = OBSTACLE_SPEED * (safeDelta / 1000);
+    // The starfield drifts at a fraction of the debris speed, so the
+    // background reads as far away rather than as part of the hazard layer.
+    this.stars.scroll(fallDistance * 0.22);
 
     // All of this frame's player movement happens via pointer events fired
     // before update() runs, while every obstacle was still at its pre-fall
@@ -164,11 +176,13 @@ export class GameScene extends Phaser.Scene {
     // WERE, not a blanket union with where they're about to land (which
     // would report a hit even if the player had already cleared an x
     // before the obstacle ever fell within reach).
-    const playerSweptRect = this.playerSweptRect();
-    let collided = this.obstacles.some((obstacle) => intersects(playerSweptRect, this.toRect(obstacle)));
+    const playerRect = rectAt(this.player.x, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE);
+    const steerPath = sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2);
+    let collided = this.obstacles.some((obstacle) => intersects(steerPath, this.obstacleRect(obstacle)));
 
     for (const obstacle of this.obstacles) {
-      obstacle.y += fallDistance;
+      obstacle.sprite.y += fallDistance;
+      obstacle.halo.y = obstacle.sprite.y - OBSTACLE_HEIGHT * 0.15;
     }
 
     // The obstacle's fall happens after the player has already settled at
@@ -176,10 +190,10 @@ export class GameScene extends Phaser.Scene {
     // next pointer event), so check the fall's swept path against the
     // player's resting position, not its full swept range.
     if (!collided) {
-      const playerRect = this.toRect(this.player);
-      collided = this.obstacles.some((obstacle) =>
-        intersects(playerRect, this.obstacleSweptRect(obstacle, fallDistance))
-      );
+      collided = this.obstacles.some((obstacle) => {
+        const rect = this.obstacleRect(obstacle);
+        return intersects(playerRect, sweepY(rect, rect.y - fallDistance));
+      });
     }
 
     if (collided) {
@@ -188,8 +202,9 @@ export class GameScene extends Phaser.Scene {
     this.prevPlayerX = this.player.x;
 
     this.obstacles = this.obstacles.filter((obstacle) => {
-      if (obstacle.y > HEIGHT + OBSTACLE_HEIGHT) {
-        obstacle.destroy();
+      if (obstacle.sprite.y > HEIGHT + OBSTACLE_HEIGHT) {
+        obstacle.sprite.destroy();
+        obstacle.halo.destroy();
         return false;
       }
       return true;
@@ -212,81 +227,65 @@ export class GameScene extends Phaser.Scene {
 
   private movePlayerTo(x: number): void {
     const half = PLAYER_SIZE / 2;
-    this.player.x = Phaser.Math.Clamp(x, half, WIDTH - half);
+    const next = Phaser.Math.Clamp(x, half, WIDTH - half);
+    // Bank into the turn — the ship leans toward wherever the thumb pulls it.
+    const lean = Phaser.Math.Clamp((next - this.player.x) * 0.03, -0.28, 0.28);
+    this.player.x = next;
+    this.player.setRotation(lean);
   }
 
   private spawnObstacle(): void {
     const half = OBSTACLE_WIDTH / 2;
     const x = Phaser.Math.Between(half, WIDTH - half);
-    const obstacle = this.add.rectangle(x, -OBSTACLE_HEIGHT, OBSTACLE_WIDTH, OBSTACLE_HEIGHT, 0xff0000);
-    this.obstacles.push(obstacle);
+    const color = HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
+
+    const halo = this.add
+      .image(x, -OBSTACLE_HEIGHT, TEX.glow)
+      .setDisplaySize(OBSTACLE_WIDTH * 2.6, OBSTACLE_HEIGHT * 2)
+      .setTint(color)
+      .setAlpha(0.3)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(DEPTH.world - 1);
+
+    const sprite = this.add
+      .image(x, -OBSTACLE_HEIGHT, ensureShardTexture(this, color))
+      .setDepth(DEPTH.world);
+
+    this.obstacles.push({ sprite, halo });
   }
 
-  private toRect(obj: Phaser.GameObjects.Rectangle): Rect {
-    const bounds = obj.getBounds();
-    return {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-    };
-  }
-
-  // Bounds of the horizontal span the player crossed this frame (from its
-  // position at the end of the previous frame to its current position),
-  // so a single fast drag/tap that jumps the player's x — pointer events
-  // move it instantly, independent of update()'s per-frame delta — can't
-  // pass through an obstacle without ever overlapping it on a sampled
-  // frame. Only x is swept — the player never moves vertically. Checked
-  // against each obstacle's PRE-fall position (see update()) since all of
-  // this sweep happened before this frame's fall was applied.
-  private playerSweptRect(): Rect {
-    const currentX = this.player.x;
-    this.player.x = this.prevPlayerX;
-    const prevBounds = this.player.getBounds();
-    this.player.x = currentX;
-    const currentBounds = this.player.getBounds();
-
-    const left = Math.min(prevBounds.x, currentBounds.x);
-    const right = Math.max(prevBounds.x + prevBounds.width, currentBounds.x + currentBounds.width);
-
-    return {
-      x: left,
-      y: currentBounds.y,
-      width: right - left,
-      height: currentBounds.height,
-    };
-  }
-
-  // Bounds of the vertical span an obstacle fell through this frame (from
-  // its position before this frame's fall to its position now). Checked
-  // against the player's FINAL (unswept) rect in update(): the obstacle's
-  // fall happens after the player has already settled at its position for
-  // this frame, so there's nothing left of the player's own motion to
-  // sweep at this point — only the obstacle's. Only y is swept — obstacles
-  // never move horizontally.
-  private obstacleSweptRect(obstacle: Phaser.GameObjects.Rectangle, fallDistance: number): Rect {
-    const currentY = obstacle.y;
-    obstacle.y = currentY - fallDistance;
-    const prevBounds = obstacle.getBounds();
-    obstacle.y = currentY;
-    const currentBounds = obstacle.getBounds();
-
-    const top = Math.min(prevBounds.y, currentBounds.y);
-    const bottom = Math.max(prevBounds.y + prevBounds.height, currentBounds.y + currentBounds.height);
-
-    return {
-      x: currentBounds.x,
-      y: top,
-      width: currentBounds.width,
-      height: bottom - top,
-    };
+  private obstacleRect(obstacle: Obstacle): Rect {
+    return rectAt(obstacle.sprite.x, obstacle.sprite.y, OBSTACLE_WIDTH, OBSTACLE_HEIGHT);
   }
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
-    this.gameOverText.setText(`Game Over\nScore: ${getScoreValue(this.scoreState)}`);
-    this.restartButton.setVisible(true);
-    this.menuButton.setVisible(true);
+    this.thruster.stop();
+
+    const burst = this.add.particles(this.player.x, this.player.y, TEX.spark, {
+      speed: { min: 90, max: 340 },
+      lifespan: { min: 300, max: 700 },
+      scale: { start: 0.95, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [ACCENT, PALETTE.text, PALETTE.violet],
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    burst.setDepth(DEPTH.effects);
+    burst.explode(30);
+    this.time.delayedCall(1000, () => burst.destroy());
+
+    this.player.setVisible(false);
+    this.cameras.main.shake(240, 0.012);
+    this.cameras.main.flash(160, 69, 224, 255);
+
+    // Let the explosion read before the card covers it.
+    this.time.delayedCall(320, () => {
+      if (this.state !== 'gameOver') {
+        return;
+      }
+      this.overlayShown = true;
+      this.overlay.show('GAME OVER', 'Score', `${getScoreValue(this.scoreState)}`);
+    });
   }
 }
