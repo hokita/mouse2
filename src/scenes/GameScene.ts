@@ -39,6 +39,7 @@ export class GameScene extends Phaser.Scene {
   private restartButton!: Phaser.GameObjects.Text;
   private menuButton!: Phaser.GameObjects.Text;
   private state!: GameState;
+  private dragging = false;
 
   constructor() {
     super('GameScene');
@@ -76,16 +77,25 @@ export class GameScene extends Phaser.Scene {
     });
     this.restartButton.setOrigin(0.5, 0.5);
     this.restartButton.setInteractive({ useHandCursor: true });
-    this.restartButton.on('pointerdown', () => {
-      // Defense in depth: the button is only meant to act during Game Over.
-      // Visibility already gates this in normal operation, but Phaser does
-      // not itself skip input processing for invisible objects, so this
-      // guard keeps the handler inert during "playing" independent of that.
-      if (this.state !== 'gameOver') {
-        return;
+    this.restartButton.on(
+      'pointerdown',
+      (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+        // Defense in depth: the button is only meant to act during Game Over.
+        // Visibility already gates this in normal operation, but Phaser does
+        // not itself skip input processing for invisible objects, so this
+        // guard keeps the handler inert during "playing" independent of that.
+        if (this.state !== 'gameOver') {
+          return;
+        }
+        // Stop this tap from also reaching the scene-wide pointerdown handler
+        // (handlePointerDown): without this, resetState() below flips state
+        // to 'playing' synchronously, and the same tap's coordinates would
+        // then be read by handlePointerDown as a drag-move command, snapping
+        // the just-centered player to wherever on this button was tapped.
+        event.stopPropagation();
+        this.resetState();
       }
-      this.resetState();
-    });
+    );
 
     this.menuButton = this.add.text(WIDTH / 2, HEIGHT / 2 + 70, 'Back to Menu', {
       fontSize: '22px',
@@ -93,12 +103,17 @@ export class GameScene extends Phaser.Scene {
     });
     this.menuButton.setOrigin(0.5, 0.5);
     this.menuButton.setInteractive({ useHandCursor: true });
-    this.menuButton.on('pointerdown', () => {
-      if (this.state !== 'gameOver') {
-        return;
+    this.menuButton.on(
+      'pointerdown',
+      (_pointer: Phaser.Input.Pointer, _localX: number, _localY: number, event: Phaser.Types.Input.EventData) => {
+        if (this.state !== 'gameOver') {
+          return;
+        }
+        // Same defensive stopPropagation() as restartButton — see its comment.
+        event.stopPropagation();
+        this.scene.start('MenuScene');
       }
-      this.scene.start('MenuScene');
-    });
+    );
 
     this.scoreText.setDepth(10);
     this.gameOverText.setDepth(10);
@@ -122,6 +137,7 @@ export class GameScene extends Phaser.Scene {
     this.obstacles = [];
     this.player.x = WIDTH / 2;
     this.prevPlayerX = WIDTH / 2;
+    this.dragging = false;
   }
 
   update(_time: number, delta: number): void {
@@ -182,12 +198,13 @@ export class GameScene extends Phaser.Scene {
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state === 'playing') {
+      this.dragging = true;
       this.movePlayerTo(pointer.x);
     }
   }
 
   private handlePointerMove(pointer: Phaser.Input.Pointer): void {
-    if (this.state !== 'playing' || !pointer.isDown) {
+    if (this.state !== 'playing' || !this.dragging || !pointer.isDown) {
       return;
     }
     this.movePlayerTo(pointer.x);
