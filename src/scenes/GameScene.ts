@@ -66,6 +66,8 @@ interface Enemy {
   halo: Phaser.GameObjects.Image;
   color: number;
   baseX: number;
+  /** x before this frame's wobble step — the bullet kill check sweeps it. */
+  prevX: number;
   elapsedMs: number;
   fireState: SpawnerState;
 }
@@ -226,7 +228,13 @@ export class GameScene extends Phaser.Scene {
     const steerPath = sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2);
     let collided = this.enemies.some((enemy) => intersects(steerPath, this.enemyRect(enemy)));
 
+    // Bullets fired this frame are collected separately and appended after
+    // the enemy-bullet collision pass below: a brand-new bullet postdates the
+    // player's drag (steerPath) and hasn't moved yet, so testing it against
+    // that historical path could consume a heart the player never earned.
+    const firedThisFrame: Phaser.GameObjects.Rectangle[] = [];
     for (const enemy of this.enemies) {
+      enemy.prevX = enemy.sprite.x;
       enemy.elapsedMs += safeDelta;
       enemy.sprite.y += fallDistance;
       enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
@@ -244,7 +252,7 @@ export class GameScene extends Phaser.Scene {
           PALETTE.amber
         );
         bullet.setDepth(DEPTH.world);
-        this.enemyBullets.push(bullet);
+        firedThisFrame.push(bullet);
       }
     }
 
@@ -256,13 +264,25 @@ export class GameScene extends Phaser.Scene {
     // because this filter iterates a snapshot of playerBullets and each
     // callback re-reads this.enemies fresh via find(), so a killed enemy is
     // immediately out of consideration for later bullets in the same frame.
+    const bulletTravel = PLAYER_BULLET_SPEED * (safeDelta / 1000);
     this.playerBullets = this.playerBullets.filter((bullet) => {
       if (bullet.y < -PLAYER_BULLET_HEIGHT) {
         bullet.destroy();
         return false;
       }
-      const bulletRect = rectAt(bullet.x, bullet.y, PLAYER_BULLET_WIDTH, PLAYER_BULLET_HEIGHT);
-      const target = this.enemies.find((enemy) => intersects(bulletRect, this.enemyRect(enemy)));
+      // Both bullet and enemy moved this frame, so endpoint rects alone can
+      // let a grazing shot cross an enemy's corner without either endpoint
+      // overlapping. Sweep each over its own frame motion instead; the AABB
+      // union is slightly generous at the corners, which errs toward
+      // awarding the kid their kill — the right direction here.
+      const bulletSwept = sweepY(
+        rectAt(bullet.x, bullet.y, PLAYER_BULLET_WIDTH, PLAYER_BULLET_HEIGHT),
+        bullet.y + bulletTravel - PLAYER_BULLET_HEIGHT / 2
+      );
+      const target = this.enemies.find((enemy) => {
+        const rect = this.enemyRect(enemy);
+        return intersects(bulletSwept, sweepY(sweepX(rect, enemy.prevX - ENEMY_WIDTH / 2), rect.y - fallDistance));
+      });
       if (target) {
         this.explodeEnemy(target);
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
@@ -293,6 +313,9 @@ export class GameScene extends Phaser.Scene {
       }
       return true;
     });
+    // Only now do this frame's fresh bullets join the pool — see the note at
+    // the spawn site.
+    this.enemyBullets.push(...firedThisFrame);
 
     // The enemy's fall happens after the player has already settled at its
     // final position for this frame, so check the fall's swept path against
@@ -399,6 +422,7 @@ export class GameScene extends Phaser.Scene {
       halo,
       color,
       baseX,
+      prevX: baseX,
       elapsedMs: 0,
       fireState: createSpawner(ENEMY_MIN_FIRE_INTERVAL_MS, ENEMY_MAX_FIRE_INTERVAL_MS),
     });
