@@ -3,6 +3,7 @@ import { createScore, addPoints, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
+import { spawnRange } from '../core/difficulty';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { sweepX, sweepY } from '../core/sweep';
@@ -40,8 +41,6 @@ const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
 const ENEMY_FALL_SPEED = 60;
 const ENEMY_WOBBLE_AMPLITUDE = 60;
 const ENEMY_WOBBLE_PERIOD_MS = 2000;
-const ENEMY_MIN_SPAWN_INTERVAL_MS = 1500;
-const ENEMY_MAX_SPAWN_INTERVAL_MS = 2500;
 const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
 const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
 
@@ -99,6 +98,7 @@ export class GameScene extends Phaser.Scene {
   private overlayShown = false;
   private state!: GameState;
   private dragging = false;
+  private elapsedMs!: number;
 
   constructor() {
     super('GameScene');
@@ -173,7 +173,9 @@ export class GameScene extends Phaser.Scene {
     this.overlayShown = false;
     this.overlay.hide();
     this.scoreState = createScore();
-    this.spawnerState = createSpawner(ENEMY_MIN_SPAWN_INTERVAL_MS, ENEMY_MAX_SPAWN_INTERVAL_MS);
+    this.elapsedMs = 0;
+    const opening = spawnRange(0);
+    this.spawnerState = createSpawner(opening.min, opening.max);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     this.scorePill.setValue('0');
     this.livesState = createLives(STARTING_LIVES);
@@ -206,6 +208,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
+    this.elapsedMs += safeDelta;
 
     // The bank applied while steering (see movePlayerTo) relaxes back to level
     // as soon as the thumb stops moving. Cosmetic only — the collision box is
@@ -216,6 +219,11 @@ export class GameScene extends Phaser.Scene {
     this.spawnerState = spawnResult.state;
     if (spawnResult.shouldSpawn) {
       this.spawnEnemy();
+      // Redraw the next wait from the range the run has reached. Rebuilding
+      // discards the spawner's sub-frame carryover, which is far smaller than
+      // the interval it is folded into.
+      const range = spawnRange(this.elapsedMs);
+      this.spawnerState = createSpawner(range.min, range.max);
     }
 
     if (this.dragging && this.input.activePointer.isDown) {
