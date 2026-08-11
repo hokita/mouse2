@@ -67,6 +67,13 @@ const INVINCIBILITY_MS = 1500;
 
 type GameState = 'playing' | 'gameOver';
 
+/** Enemy bullets travel on an arbitrary heading so tanks can fire a fan. */
+interface EnemyBullet {
+  rect: Phaser.GameObjects.Rectangle;
+  vx: number;
+  vy: number;
+}
+
 interface Enemy {
   sprite: Phaser.GameObjects.Image;
   /** Soft halo trailing the shard; purely decorative. */
@@ -87,7 +94,7 @@ export class GameScene extends Phaser.Scene {
   private prevPlayerY!: number;
   private enemies: Enemy[] = [];
   private playerBullets: Phaser.GameObjects.Rectangle[] = [];
-  private enemyBullets: Phaser.GameObjects.Rectangle[] = [];
+  private enemyBullets: EnemyBullet[] = [];
   private fireState!: SpawnerState;
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
@@ -190,7 +197,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.playerBullets = [];
     for (const bullet of this.enemyBullets) {
-      bullet.destroy();
+      bullet.rect.destroy();
     }
     this.enemyBullets = [];
     this.player.x = WIDTH / 2;
@@ -254,7 +261,7 @@ export class GameScene extends Phaser.Scene {
     // the enemy-bullet collision pass below: a brand-new bullet postdates the
     // player's drag (steerPath) and hasn't moved yet, so testing it against
     // that historical path could consume a heart the player never earned.
-    const firedThisFrame: Phaser.GameObjects.Rectangle[] = [];
+    const firedThisFrame: EnemyBullet[] = [];
     for (const enemy of this.enemies) {
       enemy.prevX = enemy.sprite.x;
       enemy.elapsedMs += safeDelta;
@@ -266,15 +273,15 @@ export class GameScene extends Phaser.Scene {
       const enemyFire = tickSpawner(enemy.fireState, safeDelta);
       enemy.fireState = enemyFire.state;
       if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
-        const bullet = this.add.rectangle(
+        const rect = this.add.rectangle(
           enemy.sprite.x,
           enemy.sprite.y + ENEMY_HEIGHT / 2 + ENEMY_BULLET_SIZE / 2,
           ENEMY_BULLET_SIZE,
           ENEMY_BULLET_SIZE,
           PALETTE.amber
         );
-        bullet.setDepth(DEPTH.world);
-        firedThisFrame.push(bullet);
+        rect.setDepth(DEPTH.world);
+        firedThisFrame.push({ rect, vx: 0, vy: ENEMY_BULLET_SPEED });
       }
     }
 
@@ -322,17 +329,29 @@ export class GameScene extends Phaser.Scene {
     let shotByEnemy = false;
     this.enemyBullets = this.enemyBullets.filter((bullet) => {
       // The player's drag movement happened before update(), while this
-      // bullet was still at its pre-fall position — so, as with the enemy
+      // bullet was still at its pre-move position — so, as with the enemy
       // checks, test the player's swept path against where the bullet WAS
-      // before also checking final rects after the fall.
-      const sweptHit = intersects(steerPath, rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE));
-      bullet.y += ENEMY_BULLET_SPEED * (safeDelta / 1000);
-      if (bullet.y > HEIGHT + ENEMY_BULLET_SIZE) {
-        bullet.destroy();
+      // before also checking final rects after the move.
+      const sweptHit = intersects(
+        steerPath,
+        rectAt(bullet.rect.x, bullet.rect.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE)
+      );
+      bullet.rect.x += bullet.vx * (safeDelta / 1000);
+      bullet.rect.y += bullet.vy * (safeDelta / 1000);
+      if (
+        bullet.rect.y > HEIGHT + ENEMY_BULLET_SIZE ||
+        bullet.rect.y < -ENEMY_BULLET_SIZE ||
+        bullet.rect.x < -ENEMY_BULLET_SIZE ||
+        bullet.rect.x > WIDTH + ENEMY_BULLET_SIZE
+      ) {
+        bullet.rect.destroy();
         return false;
       }
-      if (sweptHit || intersects(rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE), playerRect)) {
-        bullet.destroy();
+      if (
+        sweptHit ||
+        intersects(rectAt(bullet.rect.x, bullet.rect.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE), playerRect)
+      ) {
+        bullet.rect.destroy();
         shotByEnemy = true;
         return false;
       }
