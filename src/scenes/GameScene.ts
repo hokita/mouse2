@@ -4,6 +4,7 @@ import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { spawnRange } from '../core/difficulty';
+import { fanVelocities } from '../core/spread';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { sweepX, sweepY } from '../core/sweep';
@@ -44,8 +45,24 @@ const ENEMY_WOBBLE_PERIOD_MS = 2000;
 const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
 const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
 
-/** Enemies come in four flavours purely so the field never looks uniform. */
-const HAZARD_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.amber, PALETTE.mint];
+/** Enemies come in three flavours purely so the field never looks uniform. */
+const HAZARD_COLORS = [PALETTE.violet, PALETTE.amber, PALETTE.mint];
+
+// The tank is the same shard at 1.6x, so it reads as "the big one" rather
+// than a different creature. Rose is reserved for it: the only red thing in
+// the hazard field is the one that takes five shots.
+const TANK_SCALE = ENEMY_SCALE * 1.6;
+const TANK_WIDTH = SHARD_WIDTH * TANK_SCALE;
+const TANK_HEIGHT = SHARD_HEIGHT * TANK_SCALE;
+const TANK_COLOR = PALETTE.rose;
+const TANK_CHANCE = 0.1;
+const TANK_HP = 5;
+const TANK_KILL_POINTS = 50;
+const TANK_FLASH_MS = 120;
+const TANK_MIN_FIRE_INTERVAL_MS = 2500;
+const TANK_MAX_FIRE_INTERVAL_MS = 4000;
+const TANK_SPREAD_COUNT = 5;
+const TANK_SPREAD_RADIANS = Phaser.Math.DegToRad(80);
 
 // Caps how much sim time a single frame advances timers and movement by, so
 // a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
@@ -84,6 +101,12 @@ interface Enemy {
   prevX: number;
   elapsedMs: number;
   fireState: SpawnerState;
+  kind: 'normal' | 'tank';
+  /** Player bullets still needed to destroy it. */
+  hp: number;
+  /** Displayed size, which is also the hitbox — see ENEMY_SCALE. */
+  width: number;
+  height: number;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -268,20 +291,26 @@ export class GameScene extends Phaser.Scene {
       enemy.sprite.y += fallDistance;
       enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
       enemy.halo.x = enemy.sprite.x;
-      enemy.halo.y = enemy.sprite.y - ENEMY_HEIGHT * 0.15;
+      enemy.halo.y = enemy.sprite.y - enemy.height * 0.15;
 
       const enemyFire = tickSpawner(enemy.fireState, safeDelta);
       enemy.fireState = enemyFire.state;
       if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
-        const rect = this.add.rectangle(
-          enemy.sprite.x,
-          enemy.sprite.y + ENEMY_HEIGHT / 2 + ENEMY_BULLET_SIZE / 2,
-          ENEMY_BULLET_SIZE,
-          ENEMY_BULLET_SIZE,
-          PALETTE.amber
-        );
-        rect.setDepth(DEPTH.world);
-        firedThisFrame.push({ rect, vx: 0, vy: ENEMY_BULLET_SPEED });
+        const shots =
+          enemy.kind === 'tank'
+            ? fanVelocities(TANK_SPREAD_COUNT, TANK_SPREAD_RADIANS, ENEMY_BULLET_SPEED)
+            : fanVelocities(1, 0, ENEMY_BULLET_SPEED);
+        for (const { vx, vy } of shots) {
+          const rect = this.add.rectangle(
+            enemy.sprite.x,
+            enemy.sprite.y + enemy.height / 2 + ENEMY_BULLET_SIZE / 2,
+            ENEMY_BULLET_SIZE,
+            ENEMY_BULLET_SIZE,
+            PALETTE.amber
+          );
+          rect.setDepth(DEPTH.world);
+          firedThisFrame.push({ rect, vx, vy });
+        }
       }
     }
 
@@ -306,14 +335,22 @@ export class GameScene extends Phaser.Scene {
       );
       const target = this.enemies.find((enemy) => {
         const rect = this.enemyRect(enemy);
-        return intersects(bulletSwept, sweepY(sweepX(rect, enemy.prevX - ENEMY_WIDTH / 2), rect.y - fallDistance));
+        return intersects(bulletSwept, sweepY(sweepX(rect, enemy.prevX - enemy.width / 2), rect.y - fallDistance));
       });
       if (target) {
+        bullet.destroy();
+        target.hp -= 1;
+        if (target.hp > 0) {
+          this.flashEnemy(target);
+          return false;
+        }
         this.explodeEnemy(target);
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
-        this.scoreState = addPoints(this.scoreState, KILL_POINTS);
+        this.scoreState = addPoints(
+          this.scoreState,
+          target.kind === 'tank' ? TANK_KILL_POINTS : KILL_POINTS
+        );
         this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
-        bullet.destroy();
         return false;
       }
       // Only discard an off-screen bullet AFTER the swept check: a capped
@@ -375,7 +412,7 @@ export class GameScene extends Phaser.Scene {
     this.prevPlayerY = this.player.y;
 
     this.enemies = this.enemies.filter((enemy) => {
-      if (enemy.sprite.y > HEIGHT + ENEMY_HEIGHT) {
+      if (enemy.sprite.y > HEIGHT + enemy.height) {
         enemy.sprite.destroy();
         enemy.halo.destroy();
         return false;
@@ -447,23 +484,29 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemy(): void {
+    const isTank = Phaser.Math.FloatBetween(0, 1) < TANK_CHANCE;
+    const width = isTank ? TANK_WIDTH : ENEMY_WIDTH;
+    const height = isTank ? TANK_HEIGHT : ENEMY_HEIGHT;
+    const color = isTank
+      ? TANK_COLOR
+      : HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
+
     // Spawning baseX inside the wobble margin keeps the whole wobble arc on
     // screen, so no per-frame clamping is needed.
-    const margin = ENEMY_WIDTH / 2 + ENEMY_WOBBLE_AMPLITUDE;
+    const margin = width / 2 + ENEMY_WOBBLE_AMPLITUDE;
     const baseX = Phaser.Math.Between(margin, WIDTH - margin);
-    const color = HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
 
     const halo = this.add
-      .image(baseX, -ENEMY_HEIGHT, TEX.glow)
-      .setDisplaySize(ENEMY_WIDTH * 2.6, ENEMY_HEIGHT * 2)
+      .image(baseX, -height, TEX.glow)
+      .setDisplaySize(width * 2.6, height * 2)
       .setTint(color)
-      .setAlpha(0.3)
+      .setAlpha(isTank ? 0.45 : 0.3)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(DEPTH.world - 1);
 
     const sprite = this.add
-      .image(baseX, -ENEMY_HEIGHT, ensureShardTexture(this, color))
-      .setScale(ENEMY_SCALE)
+      .image(baseX, -height, ensureShardTexture(this, color))
+      .setScale(isTank ? TANK_SCALE : ENEMY_SCALE)
       .setDepth(DEPTH.world);
 
     this.enemies.push({
@@ -473,12 +516,19 @@ export class GameScene extends Phaser.Scene {
       baseX,
       prevX: baseX,
       elapsedMs: 0,
-      fireState: createSpawner(ENEMY_MIN_FIRE_INTERVAL_MS, ENEMY_MAX_FIRE_INTERVAL_MS),
+      fireState: createSpawner(
+        isTank ? TANK_MIN_FIRE_INTERVAL_MS : ENEMY_MIN_FIRE_INTERVAL_MS,
+        isTank ? TANK_MAX_FIRE_INTERVAL_MS : ENEMY_MAX_FIRE_INTERVAL_MS
+      ),
+      kind: isTank ? 'tank' : 'normal',
+      hp: isTank ? TANK_HP : 1,
+      width,
+      height,
     });
   }
 
   private enemyRect(enemy: Enemy): Rect {
-    return rectAt(enemy.sprite.x, enemy.sprite.y, ENEMY_WIDTH, ENEMY_HEIGHT);
+    return rectAt(enemy.sprite.x, enemy.sprite.y, enemy.width, enemy.height);
   }
 
   /** Destroys a shot-down enemy with a short burst in its own colour. */
@@ -497,6 +547,18 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(600, () => burst.destroy());
     enemy.sprite.destroy();
     enemy.halo.destroy();
+  }
+
+  /** White pop on a hit that did not kill, so the tank reads as damaged. */
+  private flashEnemy(enemy: Enemy): void {
+    enemy.sprite.setTintFill(PALETTE.text);
+    this.time.delayedCall(TANK_FLASH_MS, () => {
+      // The enemy may have died — or the whole run been reset — inside the
+      // flash window, and a destroyed sprite must not be tinted.
+      if (enemy.sprite.active) {
+        enemy.sprite.clearTint();
+      }
+    });
   }
 
   private updateLivesPill(): void {
