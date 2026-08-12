@@ -352,6 +352,14 @@ export interface SoundButtonOptions {
   accent?: number;
   x?: number;
   y?: number;
+  /**
+   * Defaults to DEPTH.hud, which is where the menu's chip belongs. A game
+   * scene that can show the DEPTH.overlay game-over card should pass
+   * DEPTH.overlay + 1 — otherwise the card's scrim sits above the chip in the
+   * render list, wins the hit test, and swallows the tap that was meant to
+   * mute it.
+   */
+  depth?: number;
 }
 
 /**
@@ -363,9 +371,9 @@ export function createSoundButton(
   scene: Phaser.Scene,
   options: SoundButtonOptions = {}
 ): Phaser.GameObjects.Container {
-  const { accent = PALETTE.text, x = WIDTH / 2, y = SOUND_Y } = options;
+  const { accent = PALETTE.text, x = WIDTH / 2, y = SOUND_Y, depth = DEPTH.hud } = options;
 
-  const container = scene.add.container(x, y).setDepth(DEPTH.hud);
+  const container = scene.add.container(x, y).setDepth(depth);
   const bg = scene.add.graphics();
   const glyph = scene.add.graphics();
 

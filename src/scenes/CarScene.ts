@@ -153,7 +153,7 @@ export class CarScene extends Phaser.Scene {
       isArmed: () => this.state === 'playing',
     });
 
-    createSoundButton(this, { accent: ACCENT });
+    createSoundButton(this, { accent: ACCENT, depth: DEPTH.overlay + 1 });
 
     this.overlay = createGameOverOverlay(this, {
       accent: ACCENT,
@@ -165,7 +165,6 @@ export class CarScene extends Phaser.Scene {
 
     this.cameras.main.fadeIn(280, 0, 0, 0);
     this.resetState();
-    playMusic(this, 'car');
   }
 
   /**

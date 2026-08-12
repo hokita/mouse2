@@ -26,7 +26,9 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [MenuScene, GameScene, CarScene, FishScene],
 };
 
-// Buffers render off an OfflineAudioContext, which needs no user gesture — so
-// every sound is ready long before the first tap unlocks playback.
+// Rendering buffers off an OfflineAudioContext takes real time — 75–160 ms in
+// practice — so MenuScene.create() runs and calls playMusic before its buffer
+// exists. bus.ts remembers that first request and replays it once rendering
+// catches up, rather than let it vanish.
 const game = new Phaser.Game(config);
 initAudio(game);

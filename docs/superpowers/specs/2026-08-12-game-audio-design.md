@@ -66,7 +66,7 @@ Fourteen effects, each under 300 ms, and four loops.
 |---|---|---|
 | `tap` | Menu card, back chip, overlay button | Short mid blip |
 | `launch` | Game start | Rising sweep |
-| `gameover` | Any run ends — one sting, shared by all three games | Three descending notes |
+| `gameover` | Run ends in Dodger or Car Racer | Three descending notes |
 
 **Dodger** — cyan, driving arpeggio loop
 

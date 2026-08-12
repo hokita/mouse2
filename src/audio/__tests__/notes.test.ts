@@ -18,6 +18,8 @@ describe('noteToFreq', () => {
 
   it('handles a two-digit octave and a negative one', () => {
     expect(noteToFreq('C0')).toBeCloseTo(16.352, 3);
+    expect(noteToFreq('C-1')).toBeCloseTo(8.176, 3);
+    expect(noteToFreq('A10')).toBeCloseTo(28160, 0);
   });
 
   it('rejects a note name it cannot parse', () => {
