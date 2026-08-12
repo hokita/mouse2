@@ -329,7 +329,11 @@ export class GameScene extends Phaser.Scene {
 
       const enemyFire = tickSpawner(enemy.fireState, safeDelta);
       enemy.fireState = enemyFire.state;
-      if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
+      // Visible means armed — the same predicate that makes an enemy
+      // killable. Waiting for the centre to clear the top edge gave anything
+      // flying up near the spawn line a band it could never be shot from,
+      // since every bullet travels downward.
+      if (enemyFire.shouldSpawn && this.isOnScreen(enemy)) {
         const shots =
           enemy.kind === 'tank'
             ? fanVelocities(TANK_SPREAD_COUNT, TANK_SPREAD_RADIANS, ENEMY_BULLET_SPEED)
@@ -372,7 +376,7 @@ export class GameScene extends Phaser.Scene {
         // park under the spawn line and clear enemies while they are still
         // above the canvas: the score climbs with no on-screen event to
         // explain it, and camping up there becomes strictly safe.
-        if (enemy.sprite.y + enemy.height / 2 <= 0) {
+        if (!this.isOnScreen(enemy)) {
           return false;
         }
         const rect = this.enemyRect(enemy);
@@ -581,6 +585,11 @@ export class GameScene extends Phaser.Scene {
     return rectAt(enemy.sprite.x, enemy.sprite.y, enemy.width, enemy.height);
   }
 
+  /** Whether any part of the enemy has entered the canvas from the top. */
+  private isOnScreen(enemy: Enemy): boolean {
+    return enemy.sprite.y + enemy.height / 2 > 0;
+  }
+
   /** Destroys a shot-down enemy with a short burst in its own colour. */
   private explodeEnemy(enemy: Enemy): void {
     const burst = this.add.particles(enemy.sprite.x, enemy.sprite.y, TEX.spark, {
@@ -592,7 +601,10 @@ export class GameScene extends Phaser.Scene {
       blendMode: 'ADD',
       emitting: false,
     });
-    burst.setDepth(DEPTH.effects);
+    // Above the ship, which now outranks the top fade: a kill exploding right
+    // under the player is the child's reward for the shot and must not be the
+    // one thing the hull covers up.
+    burst.setDepth(DEPTH.effects + 2);
     burst.explode(12);
     this.time.delayedCall(600, () => burst.destroy());
     enemy.flashTimer?.remove();
