@@ -62,7 +62,9 @@ const LIFT: Record<PopupKind, number> = { fish: 18, rare: 18, trash: 16 };
  *
  * Trash deliberately gets none of this. The pad exists so a small, imprecise
  * finger still lands its catch — but a pad on the one thing that costs points
- * would punish exactly the near-misses it is there to forgive.
+ * would punish exactly the near-misses it is there to forgive. The can is
+ * drawn out to the edges of its texture for the same reason: transparent
+ * margin around the art would be padding by another name.
  */
 const TAP_PAD = 12;
 

@@ -350,8 +350,8 @@ export function ensureRoadTextures(scene: Phaser.Scene): void {
 // against, so a fish can never look bigger or smaller than it is catchable.
 export const FISH_WIDTH = 76;
 export const FISH_HEIGHT = 52;
-export const TRASH_WIDTH = 56;
-export const TRASH_HEIGHT = 62;
+export const TRASH_WIDTH = 44;
+export const TRASH_HEIGHT = 56;
 export const POND_WIDTH = 128;
 export const POND_HEIGHT = 64;
 
@@ -454,55 +454,67 @@ export function ensureFishTexture(
   });
 }
 
-/** A dented tin can — deliberately grey and angular, so it never gets mistaken
- * for a fish in the half-second a player has to decide whether to tap it. */
+/**
+ * A dented tin can — deliberately grey and angular, so it never gets mistaken
+ * for a fish in the half-second a player has to decide whether to tap it.
+ *
+ * Drawn edge to edge of its texture, because that texture is also the tap
+ * target. Transparent margin around the art would quietly act as padding, and
+ * on the one thing in the game that costs points, padding means docking a
+ * player for a tap that visibly missed.
+ */
 export function ensureTrashTexture(scene: Phaser.Scene): string {
   return define(scene, TEX.trash, TRASH_WIDTH, TRASH_HEIGHT, (g) => {
     const w = TRASH_WIDTH;
     const h = TRASH_HEIGHT;
     const body = 0x6b7490;
+    // 1px in from the sides is where the barrel's outline goes, so the art
+    // still finishes flush with the texture edge.
+    const left = 1;
+    const width = w - 2;
+    const top = h * 0.12;
+    const base = h * 0.9;
+
+    // Base, barrel, then lid, each overlapping the last: three flat shapes
+    // stacked in that order is what reads as a cylinder.
+    g.fillStyle(shade(body, -0.4), 1);
+    g.fillEllipse(w / 2, base, width, h * 0.18);
 
     g.fillStyle(body, 1);
-    g.fillRoundedRect(8, 12, w - 16, h - 24, 5);
+    g.fillRect(left, top, width, base - top);
 
-    // Rear half of the lid rim, then the lid itself.
     g.fillStyle(shade(body, -0.35), 1);
-    g.fillEllipse(w / 2, 14, w - 16, 13);
+    g.fillEllipse(w / 2, top + h * 0.05, width, h * 0.2);
     g.fillStyle(shade(body, 0.28), 1);
-    g.fillEllipse(w / 2, 11, w - 16, 12);
+    g.fillEllipse(w / 2, top, width, h * 0.19);
 
+    // Label, scuffed.
     g.fillStyle(0x39415c, 1);
-    g.fillRect(8, 26, w - 16, 16);
+    g.fillRect(left, h * 0.38, width, h * 0.26);
     g.fillStyle(0x8e9bc6, 0.45);
-    g.fillRect(12, 30, 18, 2.5);
-    g.fillRect(12, 35, 26, 2);
+    g.fillRect(left + 4, h * 0.44, width * 0.42, 2.5);
+    g.fillRect(left + 4, h * 0.53, width * 0.6, 2);
 
-    // Crushed corner.
+    // Crushed down one side, glossy down the other.
     fillPolygon(g, [
-      [w - 8, 20],
-      [w - 17, 32],
-      [w - 8, 44],
+      [w - left, h * 0.28],
+      [w - left - width * 0.28, h * 0.5],
+      [w - left, h * 0.72],
     ], 0x000000, 0.22);
     g.fillStyle(0xffffff, 0.1);
-    g.fillRect(13, 14, 5, h - 28);
+    g.fillRect(left + 4, top, width * 0.12, base - top);
 
-    g.fillStyle(shade(body, -0.3), 1);
-    g.fillEllipse(w / 2, h - 12, w - 16, 11);
-
-    g.lineStyle(2, 0x232941, 0.9);
-    g.strokeRoundedRect(8, 12, w - 16, h - 24, 5);
+    // Sides are drawn as bars rather than stroked as one outline: a stroke
+    // around the whole barrel would straddle the texture edge and be clipped
+    // to half its width.
+    g.fillStyle(0x232941, 0.9);
+    g.fillRect(left, top, 1.5, base - top);
+    g.fillRect(w - left - 1.5, top, 1.5, base - top);
+    g.lineStyle(2, 0x232941, 0.75);
+    g.strokeEllipse(w / 2, top, width, h * 0.19);
   });
 }
 
-/**
- * A hole in the water, drawn in two halves that sandwich the fish.
- *
- * `pondBack` is the whole pool and sits behind whatever surfaces from it;
- * `pondLip` repeats only the near half of the surface and is drawn in front,
- * so a fish's tail dips behind the water instead of floating on top of it.
- * Two flat images do here what a per-hole geometry mask would otherwise be
- * needed for — and they batch like any other sprite.
- */
 export function ensurePondTextures(scene: Phaser.Scene): void {
   const cx = POND_WIDTH / 2;
   const cy = POND_HEIGHT / 2;
