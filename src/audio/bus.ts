@@ -22,6 +22,11 @@ let muted = false;
 
 const listeners = new Set<(muted: boolean) => void>();
 let current: { name: MusicName; sound: Phaser.Sound.BaseSound } | null = null;
+// Buffers render off an async chain, but a scene's first create() runs long
+// before that chain settles — so the opening playMusic call always arrives
+// before its buffer exists. Remember it here and replay it once rendering
+// catches up, rather than let the very first request vanish.
+let pending: { scene: Phaser.Scene; name: MusicName } | null = null;
 
 function storage(): MuteStorage | null {
   try {
@@ -72,6 +77,23 @@ async function renderAll(target: Phaser.Game, sampleRate: number): Promise<void>
       console.warn(`[audio] could not render music "${name}"`, error);
     }
   }
+
+  flushPendingMusic();
+}
+
+/** Replays a playMusic call that arrived before its buffer was ready. The
+ * player may already be somewhere else by the time rendering catches up, so
+ * a scene that is no longer active just drops the request. */
+function flushPendingMusic(): void {
+  if (pending === null) {
+    return;
+  }
+  const { scene, name } = pending;
+  pending = null;
+  if (!scene.scene.isActive()) {
+    return;
+  }
+  playMusic(scene, name);
 }
 
 function ready(key: string): boolean {
@@ -93,8 +115,14 @@ export function playSfx(
 export function playMusic(scene: Phaser.Scene, name: MusicName): void {
   const key = `music-${name}`;
   if (!ready(key)) {
+    // Only worth remembering if rendering is actually going to finish and
+    // flush it; with no audio at all there's nothing to catch up to.
+    pending = enabled ? { scene, name } : null;
     return;
   }
+  // This call is now the freshest request, so it supersedes anything still
+  // waiting to be flushed.
+  pending = null;
   if (current !== null && current.name === name && current.sound.isPlaying) {
     return;
   }
