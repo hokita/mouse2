@@ -20,7 +20,14 @@ import {
   ensureShardTexture,
   ensureShipTexture,
 } from '../ui/textures';
-import { DEPTH, createGameOverOverlay, createStarBackdrop, createStatPill, transitionTo } from '../ui/widgets';
+import {
+  DEPTH,
+  createBackButton,
+  createGameOverOverlay,
+  createStarBackdrop,
+  createStatPill,
+  transitionTo,
+} from '../ui/widgets';
 import type { GameOverOverlay, Starfield, StatPill } from '../ui/widgets';
 
 const ACCENT = PALETTE.cyan;
@@ -146,6 +153,14 @@ export class GameScene extends Phaser.Scene {
       label: 'Hearts',
       align: 'right',
       accent: PALETTE.rose,
+    });
+
+    createBackButton(this, {
+      accent: ACCENT,
+      onTap: () => transitionTo(this, 'MenuScene'),
+      // Only during a live run: once the card is up it owns the way out, and
+      // the scrim in front of the HUD is what the player is tapping anyway.
+      isArmed: () => this.state === 'playing',
     });
 
     this.overlay = createGameOverOverlay(this, {
