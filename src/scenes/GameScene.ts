@@ -3,17 +3,26 @@ import { createScore, addPoints, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
+import { spawnRange } from '../core/difficulty';
+import { fanVelocities } from '../core/spread';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { sweepX, sweepY } from '../core/sweep';
+import { movingRectHitsRect } from '../core/sweptRect';
 import { wobbleX } from '../core/wobble';
 import { createLives, hit, tickLives, isInvincible } from '../core/lives';
 import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE } from '../ui/theme';
 import {
+  ENEMY_FALL_SPEED,
+  ENEMY_HEIGHT,
+  ENEMY_SCALE,
+  ENEMY_WIDTH,
   SHARD_HEIGHT,
   SHARD_WIDTH,
+} from '../core/field';
+import {
   SHIP_SIZE,
   TEX,
   ensureFxTextures,
@@ -22,6 +31,7 @@ import {
 } from '../ui/textures';
 import {
   DEPTH,
+  STAT_PILL_HEIGHT,
   createBackButton,
   createGameOverOverlay,
   createStarBackdrop,
@@ -34,31 +44,54 @@ const ACCENT = PALETTE.cyan;
 
 const PLAYER_SIZE = SHIP_SIZE;
 const PLAYER_MARGIN_BOTTOM = 120;
-const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
-// The shard texture is 30×50, but the design calls for ~50px-wide targets
-// that 3–5 year olds can actually hit — so enemies render the shard scaled
-// up uniformly and the hitbox tracks the displayed size (art = hitbox).
-const ENEMY_SCALE = 5 / 3;
-const ENEMY_WIDTH = SHARD_WIDTH * ENEMY_SCALE;
-const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
-const ENEMY_FALL_SPEED = 60;
+const PLAYER_START_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
+// The ship flies almost the whole screen, but stops short of the score and
+// hearts pills so it can never hide the HUD. Derived from the pills' own
+// geometry rather than eyeballed, so growing the ship or the pills keeps the
+// clearance instead of silently eating it.
+const HUD_TOP = 18;
+const HUD_CLEARANCE = 18;
+const PLAYER_MIN_Y = HUD_TOP + STAT_PILL_HEIGHT + PLAYER_SIZE / 2 + HUD_CLEARANCE;
+// ENEMY_SCALE, ENEMY_WIDTH, ENEMY_HEIGHT and ENEMY_FALL_SPEED come from
+// core/field: they set how hard the field is, and the tests that guard that
+// have to read the same numbers the game runs on.
 const ENEMY_WOBBLE_AMPLITUDE = 60;
 const ENEMY_WOBBLE_PERIOD_MS = 2000;
-const ENEMY_MIN_SPAWN_INTERVAL_MS = 1500;
-const ENEMY_MAX_SPAWN_INTERVAL_MS = 2500;
 const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;
 const ENEMY_MAX_FIRE_INTERVAL_MS = 4000;
 
-/** Enemies come in four flavours purely so the field never looks uniform. */
-const HAZARD_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.amber, PALETTE.mint];
+/** Enemies come in three flavours purely so the field never looks uniform. */
+const HAZARD_COLORS = [PALETTE.violet, PALETTE.amber, PALETTE.mint];
+
+// The tank is the same shard at 1.6x, so it reads as "the big one" rather
+// than a different creature. Rose is genuinely reserved for it — it is absent
+// from HAZARD_COLORS above and the HUD pills use the ship's cyan — so the only
+// red thing on screen is the one that takes five shots.
+const TANK_SCALE = ENEMY_SCALE * 1.6;
+const TANK_WIDTH = SHARD_WIDTH * TANK_SCALE;
+const TANK_HEIGHT = SHARD_HEIGHT * TANK_SCALE;
+const TANK_COLOR = PALETTE.rose;
+const TANK_CHANCE = 0.1;
+const TANK_HP = 5;
+// 30 points a bullet against an ordinary enemy's 10. At 50 the tank paid the
+// same per bullet as a normal while having 2.6x the body to stand near, so
+// the correct play was to never shoot one — which would have made the
+// headline enemy a tax rather than a choice.
+const TANK_KILL_POINTS = 150;
+const TANK_FLASH_MS = 120;
+const TANK_MIN_FIRE_INTERVAL_MS = 2500;
+const TANK_MAX_FIRE_INTERVAL_MS = 4000;
+const TANK_SPREAD_COUNT = 5;
+const TANK_SPREAD_RADIANS = Phaser.Math.DegToRad(80);
 
 // Caps how much sim time a single frame advances timers and movement by, so
 // a stalled frame (e.g. a backgrounded tab) can't teleport objects. At the
-// cap, the fastest closing pair (a 500px/s player bullet vs. a 60px/s
-// falling enemy) closes 56px in one step, well under the ~99px combined
-// height of the bullet (16) and enemy (~83) — and the kill check sweeps
-// both sides' frame motion anyway, so nothing can tunnel through a
-// collision target.
+// cap, the fastest closing pair (a 500px/s player bullet vs. a 90px/s
+// falling enemy) closes 59px in one step, under the ~99px combined height of
+// the bullet (16) and an ordinary enemy (~83); a tank is taller still, so it
+// has more margin, not less. The kill check sweeps both sides' frame motion
+// anyway, and the player's own path is swept exactly (core/sweptRect), so
+// nothing can tunnel through a collision target.
 const MAX_DELTA_MS = 100;
 const PLAYER_FIRE_INTERVAL_MS = 400;
 const PLAYER_BULLET_SPEED = 500;
@@ -72,6 +105,13 @@ const INVINCIBILITY_MS = 1500;
 
 type GameState = 'playing' | 'gameOver';
 
+/** Enemy bullets travel on an arbitrary heading so tanks can fire a fan. */
+interface EnemyBullet {
+  rect: Phaser.GameObjects.Rectangle;
+  vx: number;
+  vy: number;
+}
+
 interface Enemy {
   sprite: Phaser.GameObjects.Image;
   /** Soft halo trailing the shard; purely decorative. */
@@ -82,6 +122,14 @@ interface Enemy {
   prevX: number;
   elapsedMs: number;
   fireState: SpawnerState;
+  kind: 'normal' | 'tank';
+  /** Player bullets still needed to destroy it. */
+  hp: number;
+  /** Displayed size, which is also the hitbox — see ENEMY_SCALE. */
+  width: number;
+  height: number;
+  /** Pending clear of a damage flash, so a later hit can cancel it. */
+  flashTimer?: Phaser.Time.TimerEvent;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -89,9 +137,10 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Image;
   private thruster!: Phaser.GameObjects.Particles.ParticleEmitter;
   private prevPlayerX!: number;
+  private prevPlayerY!: number;
   private enemies: Enemy[] = [];
   private playerBullets: Phaser.GameObjects.Rectangle[] = [];
-  private enemyBullets: Phaser.GameObjects.Rectangle[] = [];
+  private enemyBullets: EnemyBullet[] = [];
   private fireState!: SpawnerState;
   private scoreState!: ScoreState;
   private spawnerState!: SpawnerState;
@@ -102,6 +151,7 @@ export class GameScene extends Phaser.Scene {
   private overlayShown = false;
   private state!: GameState;
   private dragging = false;
+  private elapsedMs!: number;
 
   constructor() {
     super('GameScene');
@@ -130,29 +180,34 @@ export class GameScene extends Phaser.Scene {
     });
     this.thruster.setDepth(DEPTH.world - 1);
 
+    // Above the top fade, not merely above the world: the ship can now fly
+    // into that vignette, and it is there to soften incoming hazards, not to
+    // wash out the thing the child is steering.
     this.player = this.add
-      .image(WIDTH / 2, PLAYER_Y, ensureShipTexture(this))
-      .setDepth(DEPTH.world);
+      .image(WIDTH / 2, PLAYER_START_Y, ensureShipTexture(this))
+      .setDepth(DEPTH.effects + 1);
     this.thruster.startFollow(this.player, 0, PLAYER_SIZE / 2 - 6);
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
 
     this.scorePill = createStatPill(this, {
-      x: 18,
-      y: 18,
+      x: HUD_TOP,
+      y: HUD_TOP,
       width: 150,
       label: 'Score',
       accent: ACCENT,
     });
 
     this.livesPill = createStatPill(this, {
-      x: WIDTH - 18,
-      y: 18,
+      x: WIDTH - HUD_TOP,
+      y: HUD_TOP,
       width: 130,
       label: 'Hearts',
       align: 'right',
-      accent: PALETTE.rose,
+      // The ship's own cyan, not rose: the hearts belong to the player, and
+      // rose has to mean "tank" and nothing else.
+      accent: ACCENT,
     });
 
     createBackButton(this, {
@@ -184,12 +239,15 @@ export class GameScene extends Phaser.Scene {
     this.overlayShown = false;
     this.overlay.hide();
     this.scoreState = createScore();
-    this.spawnerState = createSpawner(ENEMY_MIN_SPAWN_INTERVAL_MS, ENEMY_MAX_SPAWN_INTERVAL_MS);
+    this.elapsedMs = 0;
+    const opening = spawnRange(0);
+    this.spawnerState = createSpawner(opening.min, opening.max);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     this.scorePill.setValue('0');
     this.livesState = createLives(STARTING_LIVES);
     this.updateLivesPill();
     for (const enemy of this.enemies) {
+      enemy.flashTimer?.remove();
       enemy.sprite.destroy();
       enemy.halo.destroy();
     }
@@ -199,12 +257,14 @@ export class GameScene extends Phaser.Scene {
     }
     this.playerBullets = [];
     for (const bullet of this.enemyBullets) {
-      bullet.destroy();
+      bullet.rect.destroy();
     }
     this.enemyBullets = [];
     this.player.x = WIDTH / 2;
+    this.player.y = PLAYER_START_Y;
     this.player.setVisible(true).setAlpha(1).setRotation(0);
     this.prevPlayerX = WIDTH / 2;
+    this.prevPlayerY = PLAYER_START_Y;
     this.dragging = false;
     this.thruster.start();
   }
@@ -215,6 +275,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
+    this.elapsedMs += safeDelta;
 
     // The bank applied while steering (see movePlayerTo) relaxes back to level
     // as soon as the thumb stops moving. Cosmetic only — the collision box is
@@ -225,6 +286,11 @@ export class GameScene extends Phaser.Scene {
     this.spawnerState = spawnResult.state;
     if (spawnResult.shouldSpawn) {
       this.spawnEnemy();
+      // Redraw the next wait from the range the run has reached. Rebuilding
+      // discards the spawner's sub-frame carryover, which is far smaller than
+      // the interval it is folded into.
+      const range = spawnRange(this.elapsedMs);
+      this.spawnerState = createSpawner(range.min, range.max);
     }
 
     if (this.dragging && this.input.activePointer.isDown) {
@@ -242,37 +308,54 @@ export class GameScene extends Phaser.Scene {
 
     // All of this frame's player movement happens via pointer events fired
     // before update() runs, while every enemy and bullet was still at its
-    // pre-move position — so check the player's swept path against where
-    // things WERE, not where they're about to land.
-    const playerRect = rectAt(this.player.x, PLAYER_Y, PLAYER_SIZE, PLAYER_SIZE);
-    const steerPath = sweepX(playerRect, this.prevPlayerX - PLAYER_SIZE / 2);
-    let collided = this.enemies.some((enemy) => intersects(steerPath, this.enemyRect(enemy)));
+    // pre-move position — so check the player's path against where things
+    // WERE, not where they're about to land.
+    //
+    // The path is swept exactly rather than as the union of its endpoints: a
+    // tap teleports the ship the length of the screen, and an axis-aligned
+    // union of those two rects would sweep up everything in the box between
+    // them, costing hearts for collisions that never happened.
+    const playerRect = rectAt(this.player.x, this.player.y, PLAYER_SIZE, PLAYER_SIZE);
+    const prevPlayerRect = rectAt(this.prevPlayerX, this.prevPlayerY, PLAYER_SIZE, PLAYER_SIZE);
+    let collided = this.enemies.some((enemy) =>
+      movingRectHitsRect(prevPlayerRect, playerRect, this.enemyRect(enemy))
+    );
 
     // Bullets fired this frame are collected separately and appended after
     // the enemy-bullet collision pass below: a brand-new bullet postdates the
-    // player's drag (steerPath) and hasn't moved yet, so testing it against
-    // that historical path could consume a heart the player never earned.
-    const firedThisFrame: Phaser.GameObjects.Rectangle[] = [];
+    // player's drag and hasn't moved yet, so testing it against that
+    // historical path could consume a heart the player never earned.
+    const firedThisFrame: EnemyBullet[] = [];
     for (const enemy of this.enemies) {
       enemy.prevX = enemy.sprite.x;
       enemy.elapsedMs += safeDelta;
       enemy.sprite.y += fallDistance;
       enemy.sprite.x = wobbleX(enemy.baseX, enemy.elapsedMs, ENEMY_WOBBLE_AMPLITUDE, ENEMY_WOBBLE_PERIOD_MS);
       enemy.halo.x = enemy.sprite.x;
-      enemy.halo.y = enemy.sprite.y - ENEMY_HEIGHT * 0.15;
+      enemy.halo.y = enemy.sprite.y - enemy.height * 0.15;
 
       const enemyFire = tickSpawner(enemy.fireState, safeDelta);
       enemy.fireState = enemyFire.state;
-      if (enemyFire.shouldSpawn && enemy.sprite.y > 0) {
-        const bullet = this.add.rectangle(
-          enemy.sprite.x,
-          enemy.sprite.y + ENEMY_HEIGHT / 2 + ENEMY_BULLET_SIZE / 2,
-          ENEMY_BULLET_SIZE,
-          ENEMY_BULLET_SIZE,
-          PALETTE.amber
-        );
-        bullet.setDepth(DEPTH.world);
-        firedThisFrame.push(bullet);
+      // Visible means armed — the same predicate that makes an enemy
+      // killable. Waiting for the centre to clear the top edge gave anything
+      // flying up near the spawn line a band it could never be shot from,
+      // since every bullet travels downward.
+      if (enemyFire.shouldSpawn && this.isOnScreen(enemy)) {
+        const shots =
+          enemy.kind === 'tank'
+            ? fanVelocities(TANK_SPREAD_COUNT, TANK_SPREAD_RADIANS, ENEMY_BULLET_SPEED)
+            : fanVelocities(1, 0, ENEMY_BULLET_SPEED);
+        for (const { vx, vy } of shots) {
+          const rect = this.add.rectangle(
+            enemy.sprite.x,
+            enemy.sprite.y + enemy.height / 2 + ENEMY_BULLET_SIZE / 2,
+            ENEMY_BULLET_SIZE,
+            ENEMY_BULLET_SIZE,
+            PALETTE.amber
+          );
+          rect.setDepth(DEPTH.world);
+          firedThisFrame.push({ rect, vx, vy });
+        }
       }
     }
 
@@ -296,15 +379,30 @@ export class GameScene extends Phaser.Scene {
         bullet.y + bulletTravel - PLAYER_BULLET_HEIGHT / 2
       );
       const target = this.enemies.find((enemy) => {
+        // Nothing dies before it has been seen. Without this the player can
+        // park under the spawn line and clear enemies while they are still
+        // above the canvas: the score climbs with no on-screen event to
+        // explain it, and camping up there becomes strictly safe.
+        if (!this.isOnScreen(enemy)) {
+          return false;
+        }
         const rect = this.enemyRect(enemy);
-        return intersects(bulletSwept, sweepY(sweepX(rect, enemy.prevX - ENEMY_WIDTH / 2), rect.y - fallDistance));
+        return intersects(bulletSwept, sweepY(sweepX(rect, enemy.prevX - enemy.width / 2), rect.y - fallDistance));
       });
       if (target) {
+        bullet.destroy();
+        target.hp -= 1;
+        if (target.hp > 0) {
+          this.flashEnemy(target);
+          return false;
+        }
         this.explodeEnemy(target);
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
-        this.scoreState = addPoints(this.scoreState, KILL_POINTS);
+        this.scoreState = addPoints(
+          this.scoreState,
+          target.kind === 'tank' ? TANK_KILL_POINTS : KILL_POINTS
+        );
         this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
-        bullet.destroy();
         return false;
       }
       // Only discard an off-screen bullet AFTER the swept check: a capped
@@ -320,18 +418,35 @@ export class GameScene extends Phaser.Scene {
     let shotByEnemy = false;
     this.enemyBullets = this.enemyBullets.filter((bullet) => {
       // The player's drag movement happened before update(), while this
-      // bullet was still at its pre-fall position — so, as with the enemy
+      // bullet was still at its pre-move position — so, as with the enemy
       // checks, test the player's swept path against where the bullet WAS
-      // before also checking final rects after the fall.
-      const sweptHit = intersects(steerPath, rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE));
-      bullet.y += ENEMY_BULLET_SPEED * (safeDelta / 1000);
-      if (bullet.y > HEIGHT + ENEMY_BULLET_SIZE) {
-        bullet.destroy();
+      // before also checking final rects after the move.
+      const sweptHit = movingRectHitsRect(
+        prevPlayerRect,
+        playerRect,
+        rectAt(bullet.rect.x, bullet.rect.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE)
+      );
+      bullet.rect.x += bullet.vx * (safeDelta / 1000);
+      bullet.rect.y += bullet.vy * (safeDelta / 1000);
+      // The hit is settled BEFORE the off-screen cull: a bullet that touched
+      // the player on its way out — reachable now that the ship can sit at
+      // the bottom edge, and that fan bullets carry sideways speed — has
+      // already earned its damage and must not be thrown away undelivered.
+      if (
+        sweptHit ||
+        intersects(rectAt(bullet.rect.x, bullet.rect.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE), playerRect)
+      ) {
+        bullet.rect.destroy();
+        shotByEnemy = true;
         return false;
       }
-      if (sweptHit || intersects(rectAt(bullet.x, bullet.y, ENEMY_BULLET_SIZE, ENEMY_BULLET_SIZE), playerRect)) {
-        bullet.destroy();
-        shotByEnemy = true;
+      if (
+        bullet.rect.y > HEIGHT + ENEMY_BULLET_SIZE ||
+        bullet.rect.y < -ENEMY_BULLET_SIZE ||
+        bullet.rect.x < -ENEMY_BULLET_SIZE ||
+        bullet.rect.x > WIDTH + ENEMY_BULLET_SIZE
+      ) {
+        bullet.rect.destroy();
         return false;
       }
       return true;
@@ -351,9 +466,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.prevPlayerX = this.player.x;
+    this.prevPlayerY = this.player.y;
 
     this.enemies = this.enemies.filter((enemy) => {
-      if (enemy.sprite.y > HEIGHT + ENEMY_HEIGHT) {
+      if (enemy.sprite.y > HEIGHT + enemy.height) {
         enemy.sprite.destroy();
         enemy.halo.destroy();
         return false;
@@ -387,7 +503,7 @@ export class GameScene extends Phaser.Scene {
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state === 'playing') {
       this.dragging = true;
-      this.movePlayerTo(pointer.x);
+      this.movePlayerTo(pointer.x, pointer.y);
       this.firePlayerBullet();
       this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
     }
@@ -397,22 +513,25 @@ export class GameScene extends Phaser.Scene {
     if (this.state !== 'playing' || !this.dragging || !pointer.isDown) {
       return;
     }
-    this.movePlayerTo(pointer.x);
+    this.movePlayerTo(pointer.x, pointer.y);
   }
 
-  private movePlayerTo(x: number): void {
+  private movePlayerTo(x: number, y: number): void {
     const half = PLAYER_SIZE / 2;
     const next = Phaser.Math.Clamp(x, half, WIDTH - half);
+    const nextY = Phaser.Math.Clamp(y, PLAYER_MIN_Y, HEIGHT - half);
     // Bank into the turn — the ship leans toward wherever the thumb pulls it.
+    // Horizontal only: a climb or dive should not roll the ship.
     const lean = Phaser.Math.Clamp((next - this.player.x) * 0.03, -0.28, 0.28);
     this.player.x = next;
+    this.player.y = nextY;
     this.player.setRotation(lean);
   }
 
   private firePlayerBullet(): void {
     const bullet = this.add.rectangle(
       this.player.x,
-      PLAYER_Y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
+      this.player.y - PLAYER_SIZE / 2 - PLAYER_BULLET_HEIGHT / 2,
       PLAYER_BULLET_WIDTH,
       PLAYER_BULLET_HEIGHT,
       ACCENT
@@ -422,23 +541,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemy(): void {
+    const isTank = Phaser.Math.FloatBetween(0, 1) < TANK_CHANCE;
+    const width = isTank ? TANK_WIDTH : ENEMY_WIDTH;
+    const height = isTank ? TANK_HEIGHT : ENEMY_HEIGHT;
+    const color = isTank
+      ? TANK_COLOR
+      : HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
+
     // Spawning baseX inside the wobble margin keeps the whole wobble arc on
     // screen, so no per-frame clamping is needed.
-    const margin = ENEMY_WIDTH / 2 + ENEMY_WOBBLE_AMPLITUDE;
+    const margin = width / 2 + ENEMY_WOBBLE_AMPLITUDE;
     const baseX = Phaser.Math.Between(margin, WIDTH - margin);
-    const color = HAZARD_COLORS[Phaser.Math.Between(0, HAZARD_COLORS.length - 1)];
 
+    // Kept close to the body and faint. An additive glow 2.6x the sprite's
+    // width stops being a highlight once a dozen of them share the screen —
+    // it becomes a wash that hides the very hitboxes the child is reading,
+    // and oversells the tank's size relative to what actually hurts.
     const halo = this.add
-      .image(baseX, -ENEMY_HEIGHT, TEX.glow)
-      .setDisplaySize(ENEMY_WIDTH * 2.6, ENEMY_HEIGHT * 2)
+      .image(baseX, -height, TEX.glow)
+      .setDisplaySize(width * 1.6, height * 1.3)
       .setTint(color)
-      .setAlpha(0.3)
+      .setAlpha(isTank ? 0.32 : 0.22)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(DEPTH.world - 1);
 
     const sprite = this.add
-      .image(baseX, -ENEMY_HEIGHT, ensureShardTexture(this, color))
-      .setScale(ENEMY_SCALE)
+      .image(baseX, -height, ensureShardTexture(this, color))
+      .setScale(isTank ? TANK_SCALE : ENEMY_SCALE)
       .setDepth(DEPTH.world);
 
     this.enemies.push({
@@ -448,12 +577,24 @@ export class GameScene extends Phaser.Scene {
       baseX,
       prevX: baseX,
       elapsedMs: 0,
-      fireState: createSpawner(ENEMY_MIN_FIRE_INTERVAL_MS, ENEMY_MAX_FIRE_INTERVAL_MS),
+      fireState: createSpawner(
+        isTank ? TANK_MIN_FIRE_INTERVAL_MS : ENEMY_MIN_FIRE_INTERVAL_MS,
+        isTank ? TANK_MAX_FIRE_INTERVAL_MS : ENEMY_MAX_FIRE_INTERVAL_MS
+      ),
+      kind: isTank ? 'tank' : 'normal',
+      hp: isTank ? TANK_HP : 1,
+      width,
+      height,
     });
   }
 
   private enemyRect(enemy: Enemy): Rect {
-    return rectAt(enemy.sprite.x, enemy.sprite.y, ENEMY_WIDTH, ENEMY_HEIGHT);
+    return rectAt(enemy.sprite.x, enemy.sprite.y, enemy.width, enemy.height);
+  }
+
+  /** Whether any part of the enemy has entered the canvas from the top. */
+  private isOnScreen(enemy: Enemy): boolean {
+    return enemy.sprite.y + enemy.height / 2 > 0;
   }
 
   /** Destroys a shot-down enemy with a short burst in its own colour. */
@@ -467,11 +608,33 @@ export class GameScene extends Phaser.Scene {
       blendMode: 'ADD',
       emitting: false,
     });
-    burst.setDepth(DEPTH.effects);
+    // Above the ship, which now outranks the top fade: a kill exploding right
+    // under the player is the child's reward for the shot and must not be the
+    // one thing the hull covers up.
+    burst.setDepth(DEPTH.effects + 2);
     burst.explode(12);
     this.time.delayedCall(600, () => burst.destroy());
+    enemy.flashTimer?.remove();
     enemy.sprite.destroy();
     enemy.halo.destroy();
+  }
+
+  /** White pop on a hit that did not kill, so the tank reads as damaged. */
+  private flashEnemy(enemy: Enemy): void {
+    // Each flash owns its timer and cancels the one before it. Without this,
+    // two hits in quick succession — easy, since tapping fires outside the
+    // auto-fire cadence — let the first hit's timer clear the second hit's
+    // tint early, dimming the feedback exactly when the tank is being shot
+    // fastest.
+    enemy.flashTimer?.remove();
+    enemy.sprite.setTintFill(PALETTE.text);
+    enemy.flashTimer = this.time.delayedCall(TANK_FLASH_MS, () => {
+      // The enemy may have died — or the whole run been reset — inside the
+      // flash window, and a destroyed sprite must not be tinted.
+      if (enemy.sprite.active) {
+        enemy.sprite.clearTint();
+      }
+    });
   }
 
   private updateLivesPill(): void {

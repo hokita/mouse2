@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { SHARD_HEIGHT, SHARD_WIDTH } from '../core/field';
 import { PALETTE, shade } from './theme';
 
 // Every sprite in the project is drawn here, once, into a canvas texture at
@@ -169,8 +170,10 @@ export function ensureStarTextures(scene: Phaser.Scene): void {
 // collision boxes. Art and hitbox share one definition so a redraw can never
 // quietly make a sprite lie about how much space it takes up.
 export const SHIP_SIZE = 40;
-export const SHARD_WIDTH = 30;
-export const SHARD_HEIGHT = 50;
+// The shard's size lives in core/field with the rest of the Dodger tuning, so
+// the tests that guard the field's difficulty can read it without importing
+// Phaser. Re-exported here so texture consumers still have one import.
+export { SHARD_WIDTH, SHARD_HEIGHT };
 
 /**
  * A swept-wing shuttle drawn to fill its whole 40x40 collision box — the art
