@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playMusic, playSfx } from '../audio/bus';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { GAMES } from '../games';
 import type { GameEntry, GameIcon } from '../games';
@@ -15,7 +16,7 @@ import {
   ensureFxTextures,
   ensureShipTexture,
 } from '../ui/textures';
-import { DEPTH, containerHitArea, createStarBackdrop, transitionTo } from '../ui/widgets';
+import { DEPTH, containerHitArea, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
 import { FISH_COLORS } from './FishScene';
@@ -107,6 +108,11 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+
+    playMusic(this, 'menu');
+
+    // The menu has no stat pills, so the chip takes the free top-right corner.
+    createSoundButton(this, { accent: PALETTE.cyan, x: WIDTH - 34, y: 40 });
   }
 
   update(_time: number, delta: number): void {
@@ -178,6 +184,8 @@ export class MenuScene extends Phaser.Scene {
         return;
       }
       this.launching = true;
+      playSfx(this, 'tap');
+      playSfx(this, 'launch');
       for (const other of this.cards) {
         other.disableInteractive();
       }

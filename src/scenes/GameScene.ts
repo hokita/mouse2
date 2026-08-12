@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { fadeOutMusic, playMusic, playSfx } from '../audio/bus';
 import { createScore, addPoints, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
@@ -34,6 +35,7 @@ import {
   STAT_PILL_HEIGHT,
   createBackButton,
   createGameOverOverlay,
+  createSoundButton,
   createStarBackdrop,
   createStatPill,
   transitionTo,
@@ -218,6 +220,8 @@ export class GameScene extends Phaser.Scene {
       isArmed: () => this.state === 'playing',
     });
 
+    createSoundButton(this, { accent: ACCENT, depth: DEPTH.overlay + 1 });
+
     this.overlay = createGameOverOverlay(this, {
       accent: ACCENT,
       onRestart: () => this.resetState(),
@@ -267,6 +271,7 @@ export class GameScene extends Phaser.Scene {
     this.prevPlayerY = PLAYER_START_Y;
     this.dragging = false;
     this.thruster.start();
+    playMusic(this, 'dodger');
   }
 
   update(_time: number, delta: number): void {
@@ -484,6 +489,7 @@ export class GameScene extends Phaser.Scene {
       if (result.tookHit) {
         this.updateLivesPill();
         this.cameras.main.shake(140, 0.006);
+        playSfx(this, 'hurt');
       }
       if (result.dead) {
         this.triggerGameOver();
@@ -538,6 +544,7 @@ export class GameScene extends Phaser.Scene {
     );
     bullet.setDepth(DEPTH.world);
     this.playerBullets.push(bullet);
+    playSfx(this, 'shoot');
   }
 
   private spawnEnemy(): void {
@@ -599,6 +606,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Destroys a shot-down enemy with a short burst in its own colour. */
   private explodeEnemy(enemy: Enemy): void {
+    playSfx(this, 'explode');
     const burst = this.add.particles(enemy.sprite.x, enemy.sprite.y, TEX.spark, {
       speed: { min: 60, max: 220 },
       lifespan: { min: 200, max: 450 },
@@ -643,6 +651,8 @@ export class GameScene extends Phaser.Scene {
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
+    fadeOutMusic(this);
+    playSfx(this, 'gameover');
     this.thruster.stop();
 
     const burst = this.add.particles(this.player.x, this.player.y, TEX.spark, {

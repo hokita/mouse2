@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { fadeOutMusic, playMusic, playSfx } from '../audio/bus';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { createDistance, getDistanceValue, tickDistance } from '../core/distance';
@@ -21,7 +22,14 @@ import {
   ensureGradient,
   ensureRoadTextures,
 } from '../ui/textures';
-import { DEPTH, createBackButton, createGameOverOverlay, createStatPill, transitionTo } from '../ui/widgets';
+import {
+  DEPTH,
+  createBackButton,
+  createGameOverOverlay,
+  createSoundButton,
+  createStatPill,
+  transitionTo,
+} from '../ui/widgets';
 import type { GameOverOverlay, StatPill } from '../ui/widgets';
 
 const ACCENT = PALETTE.amber;
@@ -63,6 +71,9 @@ const LANE_LINE_WIDTH = 8;
 // motion that happened while the tab was hidden — not about tunnelling.
 const MAX_DELTA_MS = 100;
 
+/** How far apart the distance chimes are. */
+const MILESTONE_METRES = 500;
+
 type GameState = 'playing' | 'gameOver';
 
 interface TrafficCar {
@@ -82,6 +93,8 @@ export class CarScene extends Phaser.Scene {
   private distanceState!: DistanceState;
   private spawnerState!: SpawnerState;
   private elapsedMs!: number;
+  /** Metres at the last chime, so each 500 m boundary is announced once. */
+  private lastMilestone = 0;
   private distancePill!: StatPill;
   private speedPill!: StatPill;
   private overlay!: GameOverOverlay;
@@ -139,6 +152,8 @@ export class CarScene extends Phaser.Scene {
       // See GameScene: live runs only, the card owns the exit after a crash.
       isArmed: () => this.state === 'playing',
     });
+
+    createSoundButton(this, { accent: ACCENT, depth: DEPTH.overlay + 1 });
 
     this.overlay = createGameOverOverlay(this, {
       accent: ACCENT,
@@ -227,6 +242,8 @@ export class CarScene extends Phaser.Scene {
     this.headlights.setVisible(true).setX(startX);
     this.prevPlayerX = startX;
     this.dragging = false;
+    this.lastMilestone = 0;
+    playMusic(this, 'car');
   }
 
   update(_time: number, delta: number): void {
@@ -246,6 +263,14 @@ export class CarScene extends Phaser.Scene {
     this.distanceState = tickDistance(this.distanceState, speed, safeDelta);
     this.distancePill.setValue(`${getDistanceValue(this.distanceState)} m`);
     this.speedPill.setValue(`${this.displaySpeed(speed)}`);
+
+    // Floored to the boundary rather than incremented by 500, so a single
+    // frame that crosses two boundaries still leaves the counter honest.
+    const metres = getDistanceValue(this.distanceState);
+    if (metres >= this.lastMilestone + MILESTONE_METRES) {
+      this.lastMilestone = Math.floor(metres / MILESTONE_METRES) * MILESTONE_METRES;
+      playSfx(this, 'milestone');
+    }
 
     const spawnResult = tickSpawner(this.spawnerState, safeDelta);
     this.spawnerState = spawnResult.state;
@@ -354,6 +379,10 @@ export class CarScene extends Phaser.Scene {
 
   private triggerGameOver(): void {
     this.state = 'gameOver';
+    fadeOutMusic(this);
+    playSfx(this, 'crash');
+    // A beat behind the impact, so the two do not smear into one noise.
+    this.time.delayedCall(260, () => playSfx(this, 'gameover'));
 
     const debris = this.add.particles(this.player.x, this.player.y, TEX.spark, {
       speed: { min: 80, max: 300 },

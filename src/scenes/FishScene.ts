@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { fadeOutMusic, playMusic, playSfx } from '../audio/bus';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
 import { createCountdown, elapsed, isFinished, secondsLeft, tickCountdown } from '../core/countdown';
@@ -26,10 +27,21 @@ import {
   ensurePondTextures,
   ensureTrashTexture,
 } from '../ui/textures';
-import { DEPTH, createBackButton, createGameOverOverlay, createStatPill, transitionTo } from '../ui/widgets';
+import {
+  DEPTH,
+  createBackButton,
+  createGameOverOverlay,
+  createSoundButton,
+  createStatPill,
+  transitionTo,
+} from '../ui/widgets';
 import type { GameOverOverlay, StatPill } from '../ui/widgets';
 
 const ACCENT = PALETTE.mint;
+
+/** How far the catch blip climbs per catch, and where the climb stops. */
+const STREAK_DETUNE_CENTS = 100;
+const STREAK_DETUNE_MAX = 6;
 
 /** One run is a minute — long enough to get somewhere, short enough to redo. */
 const RUN_MS = 60_000;
@@ -117,6 +129,8 @@ export class FishScene extends Phaser.Scene {
   private spawner!: SpawnerState;
   private countdown!: CountdownState;
   private levelIndex!: number;
+  /** Consecutive good catches, which is what walks the catch blip upward. */
+  private streak = 0;
   private scoreState!: ScoreState;
   private scorePill!: StatPill;
   private timePill!: StatPill;
@@ -179,6 +193,8 @@ export class FishScene extends Phaser.Scene {
       // See GameScene: live runs only, the card owns the exit once time is up.
       isArmed: () => this.state === 'playing',
     });
+
+    createSoundButton(this, { accent: ACCENT, depth: DEPTH.overlay + 1 });
 
     this.overlay = createGameOverOverlay(this, {
       accent: ACCENT,
@@ -270,6 +286,9 @@ export class FishScene extends Phaser.Scene {
       this.destroySprites(popup);
     }
     this.popups = [];
+
+    this.streak = 0;
+    playMusic(this, 'fish');
   }
 
   update(_time: number, delta: number): void {
@@ -300,6 +319,13 @@ export class FishScene extends Phaser.Scene {
       return popup.lifeMs <= 0;
     });
     for (const popup of expired) {
+      // The plop lives here, not inside dive(), because this is the one path
+      // through dive() that represents a genuine miss. triggerTimeUp() also
+      // calls dive() for every pop-up still up when the horn sounds, and at
+      // the last level that can be up to maxActive (4) copies of the same
+      // buffer starting on the same frame — summed coherently that clips, so
+      // the mass end-of-run dive stays silent instead.
+      playSfx(this, 'plop');
       this.dive(popup);
     }
 
@@ -325,6 +351,7 @@ export class FishScene extends Phaser.Scene {
   }
 
   private announceLevel(index: number): void {
+    playSfx(this, 'levelup');
     this.levelToast.setText(`LEVEL ${index + 1}  ·  FASTER!`);
     this.tweens.killTweensOf(this.levelToast);
     this.levelToast.setAlpha(0).setScale(0.8);
@@ -448,6 +475,15 @@ export class FishScene extends Phaser.Scene {
     this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
 
     const color = popup.kind === 'trash' ? PALETTE.rose : popup.kind === 'rare' ? PALETTE.gold : ACCENT;
+    if (popup.kind === 'trash') {
+      // A can breaks the run: the next fish starts the climb over.
+      this.streak = 0;
+      playSfx(this, 'trash');
+    } else {
+      const detune = Math.min(this.streak, STREAK_DETUNE_MAX) * STREAK_DETUNE_CENTS;
+      this.streak += 1;
+      playSfx(this, popup.kind === 'rare' ? 'rare' : 'catch', { detune });
+    }
     this.floatPoints(popup.sprite.x, popup.sprite.y - 18, points, color);
     this.burst(popup.sprite.x, popup.sprite.y, color);
     if (popup.kind === 'trash') {
@@ -584,6 +620,8 @@ export class FishScene extends Phaser.Scene {
   private triggerTimeUp(): void {
     this.state = 'timeUp';
     this.timePill.setValue('0');
+    fadeOutMusic(this);
+    playSfx(this, 'timeup');
 
     // Everything still up goes back under, so the card lands on calm water.
     for (const popup of this.popups) {

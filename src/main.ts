@@ -5,6 +5,7 @@ import { CarScene } from './scenes/CarScene';
 import { FishScene } from './scenes/FishScene';
 import { WIDTH, HEIGHT } from './gameConfig';
 import { PALETTE, css } from './ui/theme';
+import { initAudio } from './audio/bus';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -25,4 +26,9 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [MenuScene, GameScene, CarScene, FishScene],
 };
 
-new Phaser.Game(config);
+// Rendering buffers off an OfflineAudioContext takes real time — 75–160 ms in
+// practice — so MenuScene.create() runs and calls playMusic before its buffer
+// exists. bus.ts remembers that first request and replays it once rendering
+// catches up, rather than let it vanish.
+const game = new Phaser.Game(config);
+initAudio(game);

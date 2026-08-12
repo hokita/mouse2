@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { isMuted, onMuteChange, playSfx, setMuted } from '../audio/bus';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE, RADIUS, displayStyle, labelStyle, shade } from './theme';
 import { TEX, ensureFxTextures, ensureGradient, ensureStarTextures } from './textures';
@@ -176,6 +177,7 @@ export function createButton(scene: Phaser.Scene, options: ButtonOptions): Phase
       // the just-recentred player over to wherever the button was.
       event.stopPropagation();
       paint(true);
+      playSfx(scene, 'tap');
       onTap();
     }
   );
@@ -331,6 +333,7 @@ export function createBackButton(scene: Phaser.Scene, options: BackButtonOptions
         return;
       }
       event.stopPropagation();
+      playSfx(scene, 'tap');
       onTap();
     }
   );
@@ -339,6 +342,138 @@ export function createBackButton(scene: Phaser.Scene, options: BackButtonOptions
     holding = false;
     paint(false);
   });
+
+  return container;
+}
+
+const SOUND_RADIUS = 21;
+/** Directly under the back chip: the top row is already three items wide. */
+const SOUND_Y = BACK_Y + 52;
+// Left edge flush with the stat pills' left edge (x = 18), NOT screen-centre.
+// Screen-centre is the ship's own lane in Dodger — its topmost resting
+// position sits dead centre of a chip placed there, so a tap to dodge upward
+// would land on the mute chip instead of moving the ship. Tucking the chip
+// under the score pill keeps it off that lane. (It is still reachable if the
+// ship is pushed into the top-left corner, but that spot is rarely tapped.)
+const SOUND_X = SOUND_RADIUS + 18;
+
+export interface SoundButtonOptions {
+  accent?: number;
+  x?: number;
+  y?: number;
+  /**
+   * Defaults to DEPTH.hud, which is where the menu's chip belongs. A game
+   * scene that can show the DEPTH.overlay game-over card should pass
+   * DEPTH.overlay + 1 — otherwise the card's scrim sits above the chip in the
+   * render list, wins the hit test, and swallows the tap that was meant to
+   * mute it.
+   */
+  depth?: number;
+}
+
+/**
+ * The mute toggle. Round rather than a pill so it never reads as a second
+ * back button, and drawn rather than typed: a speaker emoji renders
+ * differently on every platform and arrives as a hollow box on some.
+ */
+export function createSoundButton(
+  scene: Phaser.Scene,
+  options: SoundButtonOptions = {}
+): Phaser.GameObjects.Container {
+  const { accent = PALETTE.text, x = SOUND_X, y = SOUND_Y, depth = DEPTH.hud } = options;
+
+  const container = scene.add.container(x, y).setDepth(depth);
+  const bg = scene.add.graphics();
+  const glyph = scene.add.graphics();
+
+  const paint = (pressed = false): void => {
+    const on = !isMuted();
+
+    bg.clear();
+    bg.fillStyle(pressed ? PALETTE.surface : PALETTE.skyTop, pressed ? 1 : 0.55);
+    bg.fillCircle(0, 0, SOUND_RADIUS);
+    bg.lineStyle(1.5, accent, on ? 0.55 : 0.28);
+    bg.strokeCircle(0, 0, SOUND_RADIUS);
+
+    glyph.clear();
+    const alpha = on ? 0.95 : 0.4;
+    glyph.fillStyle(accent, alpha);
+    // Neck, then the cone flaring to the right.
+    glyph.fillRect(-9, -3.5, 5, 7);
+    glyph.fillTriangle(-4, 0, 1, -8, 1, 8);
+
+    if (on) {
+      // Two arcs radiating off the cone.
+      glyph.lineStyle(1.6, accent, 0.9);
+      glyph.beginPath();
+      glyph.arc(1, 0, 6, -0.85, 0.85);
+      glyph.strokePath();
+      glyph.beginPath();
+      glyph.arc(1, 0, 10, -0.85, 0.85);
+      glyph.strokePath();
+    } else {
+      glyph.lineStyle(2, accent, 0.75);
+      glyph.beginPath();
+      glyph.moveTo(-2, -9);
+      glyph.lineTo(11, 8);
+      glyph.strokePath();
+    }
+  };
+  paint();
+
+  container.add([bg, glyph]);
+  container.setSize(SOUND_RADIUS * 2, SOUND_RADIUS * 2);
+  container.setInteractive(hitAreaFor(SOUND_RADIUS * 2, SOUND_RADIUS * 2));
+
+  let holding = false;
+
+  container.on(
+    'pointerdown',
+    (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event: Phaser.Types.Input.EventData
+    ) => {
+      // Same guard as the back chip: without it the press also reaches the
+      // scene-wide handler and reads as a steer.
+      event.stopPropagation();
+      holding = true;
+      paint(true);
+    }
+  );
+
+  container.on(
+    'pointerup',
+    (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event: Phaser.Types.Input.EventData
+    ) => {
+      if (!holding) {
+        return;
+      }
+      event.stopPropagation();
+      holding = false;
+      setMuted(!isMuted());
+      paint(false);
+      // Unmuting should prove itself; muting has nothing to say.
+      if (!isMuted()) {
+        playSfx(scene, 'tap');
+      }
+    }
+  );
+
+  container.on('pointerout', () => {
+    holding = false;
+    paint(false);
+  });
+
+  // Every screen's chip tracks the same flag, so one going stale behind a
+  // scene change would be a lie the next visit inherits.
+  const unsubscribe = onMuteChange(() => paint(false));
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
 
   return container;
 }
