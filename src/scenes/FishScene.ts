@@ -26,7 +26,7 @@ import {
   ensurePondTextures,
   ensureTrashTexture,
 } from '../ui/textures';
-import { DEPTH, createGameOverOverlay, createStatPill, transitionTo } from '../ui/widgets';
+import { DEPTH, createBackButton, createGameOverOverlay, createStatPill, transitionTo } from '../ui/widgets';
 import type { GameOverOverlay, StatPill } from '../ui/widgets';
 
 const ACCENT = PALETTE.mint;
@@ -172,6 +172,13 @@ export class FishScene extends Phaser.Scene {
     hint.setLetterSpacing(3);
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handleTap(pointer));
+
+    createBackButton(this, {
+      accent: ACCENT,
+      onTap: () => transitionTo(this, 'MenuScene'),
+      // See GameScene: live runs only, the card owns the exit once time is up.
+      isArmed: () => this.state === 'playing',
+    });
 
     this.overlay = createGameOverOverlay(this, {
       accent: ACCENT,

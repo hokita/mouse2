@@ -21,7 +21,7 @@ import {
   ensureGradient,
   ensureRoadTextures,
 } from '../ui/textures';
-import { DEPTH, createGameOverOverlay, createStatPill, transitionTo } from '../ui/widgets';
+import { DEPTH, createBackButton, createGameOverOverlay, createStatPill, transitionTo } from '../ui/widgets';
 import type { GameOverOverlay, StatPill } from '../ui/widgets';
 
 const ACCENT = PALETTE.amber;
@@ -131,6 +131,13 @@ export class CarScene extends Phaser.Scene {
       label: 'Speed km/h',
       align: 'right',
       accent: ACCENT,
+    });
+
+    createBackButton(this, {
+      accent: ACCENT,
+      onTap: () => transitionTo(this, 'MenuScene'),
+      // See GameScene: live runs only, the card owns the exit after a crash.
+      isArmed: () => this.state === 'playing',
     });
 
     this.overlay = createGameOverOverlay(this, {
