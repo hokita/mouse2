@@ -15,8 +15,14 @@ import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE } from '../ui/theme';
 import {
+  ENEMY_FALL_SPEED,
+  ENEMY_HEIGHT,
+  ENEMY_SCALE,
+  ENEMY_WIDTH,
   SHARD_HEIGHT,
   SHARD_WIDTH,
+} from '../core/field';
+import {
   SHIP_SIZE,
   TEX,
   ensureFxTextures,
@@ -46,17 +52,9 @@ const PLAYER_START_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
 const HUD_TOP = 18;
 const HUD_CLEARANCE = 18;
 const PLAYER_MIN_Y = HUD_TOP + STAT_PILL_HEIGHT + PLAYER_SIZE / 2 + HUD_CLEARANCE;
-// The shard texture is 30×50, but the design calls for ~50px-wide targets
-// that 3–5 year olds can actually hit — so enemies render the shard scaled
-// up uniformly and the hitbox tracks the displayed size (art = hitbox).
-const ENEMY_SCALE = 5 / 3;
-const ENEMY_WIDTH = SHARD_WIDTH * ENEMY_SCALE;
-const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
-// Faster than the old 60: it makes the game harder from the first second
-// (the spawn ramp alone only bites late in a run) and it shortens each
-// enemy's time on screen, which is what keeps the spawn floor from piling up
-// into an impassable wall. See the population note in core/difficulty.ts.
-const ENEMY_FALL_SPEED = 90;
+// ENEMY_SCALE, ENEMY_WIDTH, ENEMY_HEIGHT and ENEMY_FALL_SPEED come from
+// core/field: they set how hard the field is, and the tests that guard that
+// have to read the same numbers the game runs on.
 const ENEMY_WOBBLE_AMPLITUDE = 60;
 const ENEMY_WOBBLE_PERIOD_MS = 2000;
 const ENEMY_MIN_FIRE_INTERVAL_MS = 2000;

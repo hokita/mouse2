@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnRange } from '../difficulty';
+import { enemiesOnScreen } from '../field';
 
 describe('spawnRange', () => {
   it('starts tighter than the pre-ramp game, so the opening seconds are harder', () => {
@@ -25,13 +26,11 @@ describe('spawnRange', () => {
   });
 
   it('never lets the floor put more than 15 enemies on screen at once', () => {
-    // An enemy lives (HEIGHT + 2 * ENEMY_HEIGHT) / ENEMY_FALL_SPEED seconds:
-    // (932 + 166) / 90 = 12.2s. Population is that over the mean interval.
-    // This is the invariant the floor was chosen against; if either the fall
-    // speed or the floor changes, this is what should fail.
+    // The invariant the floor was chosen against. Population is computed from
+    // the same ENEMY_FALL_SPEED and ENEMY_HEIGHT the game runs on, so raising
+    // the fall speed or tightening the floor without revisiting the other
+    // fails here rather than quietly rebuilding the wall this replaced.
     const { min, max } = spawnRange(60_000);
-    const meanIntervalMs = (min + max) / 2;
-    const lifetimeMs = ((932 + 166) / 90) * 1000;
-    expect(lifetimeMs / meanIntervalMs).toBeLessThan(15);
+    expect(enemiesOnScreen((min + max) / 2)).toBeLessThan(15);
   });
 });
