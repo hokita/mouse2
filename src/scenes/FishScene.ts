@@ -319,6 +319,13 @@ export class FishScene extends Phaser.Scene {
       return popup.lifeMs <= 0;
     });
     for (const popup of expired) {
+      // The plop lives here, not inside dive(), because this is the one path
+      // through dive() that represents a genuine miss. triggerTimeUp() also
+      // calls dive() for every pop-up still up when the horn sounds, and at
+      // the last level that can be up to maxActive (4) copies of the same
+      // buffer starting on the same frame — summed coherently that clips, so
+      // the mass end-of-run dive stays silent instead.
+      playSfx(this, 'plop');
       this.dive(popup);
     }
 
@@ -503,7 +510,6 @@ export class FishScene extends Phaser.Scene {
 
   /** Sends an untapped pop-up back under, no penalty either way. */
   private dive(popup: Popup): void {
-    playSfx(this, 'plop');
     popup.leaving = true;
     this.tweens.killTweensOf(popup.sprite);
     this.splash(popup.sprite.x, this.holeCenter(popup.hole).y, PALETTE.pond);

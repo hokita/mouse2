@@ -177,6 +177,7 @@ export function createButton(scene: Phaser.Scene, options: ButtonOptions): Phase
       // the just-recentred player over to wherever the button was.
       event.stopPropagation();
       paint(true);
+      playSfx(scene, 'tap');
       onTap();
     }
   );
@@ -332,6 +333,7 @@ export function createBackButton(scene: Phaser.Scene, options: BackButtonOptions
         return;
       }
       event.stopPropagation();
+      playSfx(scene, 'tap');
       onTap();
     }
   );
@@ -347,6 +349,13 @@ export function createBackButton(scene: Phaser.Scene, options: BackButtonOptions
 const SOUND_RADIUS = 21;
 /** Directly under the back chip: the top row is already three items wide. */
 const SOUND_Y = BACK_Y + 52;
+// Left edge flush with the stat pills' left edge (x = 18), NOT screen-centre.
+// Screen-centre is the ship's own lane in Dodger — its topmost resting
+// position sits dead centre of a chip placed there, so a tap to dodge upward
+// would land on the mute chip instead of moving the ship. Tucking the chip
+// under the score pill keeps it off that lane. (It is still reachable if the
+// ship is pushed into the top-left corner, but that spot is rarely tapped.)
+const SOUND_X = SOUND_RADIUS + 18;
 
 export interface SoundButtonOptions {
   accent?: number;
@@ -371,7 +380,7 @@ export function createSoundButton(
   scene: Phaser.Scene,
   options: SoundButtonOptions = {}
 ): Phaser.GameObjects.Container {
-  const { accent = PALETTE.text, x = WIDTH / 2, y = SOUND_Y, depth = DEPTH.hud } = options;
+  const { accent = PALETTE.text, x = SOUND_X, y = SOUND_Y, depth = DEPTH.hud } = options;
 
   const container = scene.add.container(x, y).setDepth(depth);
   const bg = scene.add.graphics();

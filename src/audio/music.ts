@@ -34,10 +34,10 @@ export const MUSIC: Record<MusicName, MusicSpec> = {
     leadType: 'triangle',
     leadGain: 0.16,
     bass: [
-      'D2', _, _, _, _, _, _, _,
-      'A2', _, _, _, _, _, _, _,
-      'B2', _, _, _, _, _, _, _,
-      'G2', _, _, _, _, _, _, _,
+      'D2', _, _, _, 'D2', _, _, _,
+      'A2', _, _, _, 'A2', _, _, _,
+      'B2', _, _, _, 'B2', _, _, _,
+      'G2', _, _, _, 'G2', _, _, _,
     ],
     lead: [
       'D4', _, 'F#4', _, 'A4', _, 'F#4', _,
@@ -67,7 +67,11 @@ export const MUSIC: Record<MusicName, MusicSpec> = {
     lead: [
       'A4', 'C5', 'E5', 'C5', 'A4', 'C5', 'E5', 'G5',
       'A4', 'C5', 'E5', 'C5', 'B4', 'D5', 'F#5', 'D5',
-      'A4', 'C5', 'E5', 'C5', 'A4', 'C5', 'E5', 'G5',
+      // Bar 3 was a verbatim repeat of bar 1, which made the loop feel half
+      // as long as it is. Same A-minor triad (+ G passing tone) as bar 1, so
+      // it still sits on the same bass, but starts on the fifth and inverts
+      // the contour instead of retracing it.
+      'E5', 'C5', 'A4', 'C5', 'E5', 'G5', 'A4', 'C5',
       'F4', 'A4', 'C5', 'A4', 'E4', 'G#4', 'B4', 'E5',
     ],
     drums: [
@@ -110,10 +114,10 @@ export const MUSIC: Record<MusicName, MusicSpec> = {
     leadType: 'triangle',
     leadGain: 0.18,
     bass: [
-      'G2', _, _, _, _, _, _, _,
-      'C3', _, _, _, _, _, _, _,
-      'E2', _, _, _, _, _, _, _,
-      'A2', _, _, _, _, _, _, _,
+      'G2', _, _, _, 'G2', _, _, _,
+      'C3', _, _, _, 'C3', _, _, _,
+      'E2', _, _, _, 'E2', _, _, _,
+      'A2', _, _, _, 'A2', _, _, _,
     ],
     lead: [
       'G4', _, _, 'B4', _, 'D5', _, _,
@@ -135,8 +139,13 @@ export function musicLengthSec(spec: MusicSpec): number {
 }
 
 export function renderMusic(spec: MusicSpec, ctx: BaseAudioContext, dest: AudioNode): void {
-  // A long gate on the bass makes it read as one held line under the lead;
-  // a short one on the lead keeps the arpeggio articulated.
+  // `gate` only scales how long a single step sounds for; it has no idea
+  // what comes after and cannot hold a note across the rests that follow it
+  // (see sequence() in notes.ts). A 0.95 gate on the bass just means each
+  // struck root rings for 95% of one eighth note, not "until the next bass
+  // note" — a low end that reads as continuous under the lead comes from
+  // striking the root often (see menu/fish above), not from this gate. A
+  // short gate on the lead keeps the arpeggio articulated instead of smeared.
   for (const event of sequence(spec.bass, spec.bpm, STEPS_PER_BEAT, 0.95)) {
     tone(ctx, dest, {
       type: 'triangle',

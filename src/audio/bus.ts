@@ -58,15 +58,12 @@ export function initAudio(target: Phaser.Game): void {
 async function renderAll(target: Phaser.Game, sampleRate: number): Promise<void> {
   // Rendered one at a time and each in its own try: a single bad sound costs
   // that sound, not the soundtrack.
-  for (const [name, spec] of Object.entries(SFX)) {
-    try {
-      const buffer = await renderBuffer(sampleRate, spec.durationSec, spec.render);
-      target.cache.audio.add(`sfx-${name}`, buffer);
-    } catch (error) {
-      console.warn(`[audio] could not render sfx "${name}"`, error);
-    }
-  }
-
+  //
+  // Music renders before sfx, and the pending playMusic call (queued by the
+  // scene's create(), which runs long before any of this settles) is flushed
+  // the moment music is done — not after sfx too. Whichever screen is up
+  // wants its loop the instant its own buffer exists; none of the 14 sfx are
+  // needed in the first frames, so making them wait costs nothing.
   for (const [name, spec] of Object.entries(MUSIC)) {
     try {
       const buffer = await renderBuffer(sampleRate, musicLengthSec(spec), (ctx, dest) =>
@@ -79,6 +76,15 @@ async function renderAll(target: Phaser.Game, sampleRate: number): Promise<void>
   }
 
   flushPendingMusic();
+
+  for (const [name, spec] of Object.entries(SFX)) {
+    try {
+      const buffer = await renderBuffer(sampleRate, spec.durationSec, spec.render);
+      target.cache.audio.add(`sfx-${name}`, buffer);
+    } catch (error) {
+      console.warn(`[audio] could not render sfx "${name}"`, error);
+    }
+  }
 }
 
 /** Replays a playMusic call that arrived before its buffer was ready. The
@@ -146,22 +152,28 @@ export function fadeOutMusic(scene: Phaser.Scene, durationMs: number = GAME_OVER
   const { sound } = current;
   current = null;
 
+  // A scene change mid-fade would strand the sound at whatever volume the
+  // tween had reached, still looping. This is only a fallback for that case:
+  // once the fade actually finishes on its own, onComplete below removes it,
+  // so a normal die-then-restart cycle doesn't leave one stale listener
+  // behind on the scene's event emitter per run.
+  const onShutdown = (): void => {
+    if (sound.isPlaying) {
+      sound.stop();
+    }
+    sound.destroy();
+  };
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, onShutdown);
+
   scene.tweens.add({
     targets: sound,
     volume: 0,
     duration: durationMs,
     onComplete: () => {
+      scene.events.off(Phaser.Scenes.Events.SHUTDOWN, onShutdown);
       sound.stop();
       sound.destroy();
     },
-  });
-  // A scene change mid-fade would strand the sound at whatever volume the
-  // tween had reached, still looping.
-  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-    if (sound.isPlaying) {
-      sound.stop();
-    }
-    sound.destroy();
   });
 }
 
