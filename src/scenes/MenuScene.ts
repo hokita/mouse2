@@ -1,26 +1,30 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { GAMES } from '../games';
-import type { GameEntry } from '../games';
+import type { GameEntry, GameIcon } from '../games';
 import { PALETTE, RADIUS, bodyStyle, displayStyle, labelStyle } from '../ui/theme';
 import {
   CAR_HEIGHT,
   CAR_WIDTH,
+  FISH_HEIGHT,
+  FISH_WIDTH,
   SHIP_SIZE,
   TEX,
   ensureCarTexture,
+  ensureFishTexture,
   ensureFxTextures,
   ensureShipTexture,
 } from '../ui/textures';
 import { DEPTH, containerHitArea, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
+import { FISH_COLORS } from './FishScene';
 
 const TITLE_Y = HEIGHT * 0.28;
 const CARD_WIDTH = 350;
 const CARD_HEIGHT = 122;
 const CARD_SPACING = 24;
-const FIRST_CARD_Y = HEIGHT * 0.53;
+const FIRST_CARD_Y = HEIGHT * 0.47;
 
 export class MenuScene extends Phaser.Scene {
   private stars!: Starfield;
@@ -68,7 +72,7 @@ export class MenuScene extends Phaser.Scene {
     rule.fillRoundedRect(WIDTH / 2 - 26, TITLE_Y + 44, 52, 4, 2);
 
     this.add
-      .text(WIDTH / 2, TITLE_Y + 74, 'Two small games. One thumb.', bodyStyle(15))
+      .text(WIDTH / 2, TITLE_Y + 74, 'Three small games. One thumb.', bodyStyle(15))
       .setOrigin(0.5, 0.5)
       .setDepth(DEPTH.hud);
 
@@ -91,7 +95,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     const footer = this.add
-      .text(WIDTH / 2, HEIGHT - 74, 'DRAG TO STEER', labelStyle(12, PALETTE.muted))
+      .text(WIDTH / 2, HEIGHT - 74, 'TAP OR DRAG TO PLAY', labelStyle(12, PALETTE.muted))
       .setOrigin(0.5, 0.5)
       .setDepth(DEPTH.hud);
     footer.setLetterSpacing(4);
@@ -196,9 +200,16 @@ export class MenuScene extends Phaser.Scene {
     return card;
   }
 
-  private createIcon(icon: 'ship' | 'car'): Phaser.GameObjects.Image {
+  private createIcon(icon: GameIcon): Phaser.GameObjects.Image {
     if (icon === 'ship') {
       return this.add.image(0, 0, ensureShipTexture(this)).setDisplaySize(SHIP_SIZE * 1.2, SHIP_SIZE * 1.2);
+    }
+    if (icon === 'fish') {
+      // Sized to sit inside the 80px badge plate with a little air around it.
+      const scale = 0.78;
+      return this.add
+        .image(0, 0, ensureFishTexture(this, FISH_COLORS[1]))
+        .setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
     }
     const scale = 0.72;
     return this.add

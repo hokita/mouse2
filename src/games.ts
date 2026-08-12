@@ -1,6 +1,6 @@
 import { PALETTE } from './ui/theme';
 
-export type GameIcon = 'ship' | 'car';
+export type GameIcon = 'ship' | 'car' | 'fish';
 
 export interface GameEntry {
   title: string;
@@ -26,5 +26,12 @@ export const GAMES: GameEntry[] = [
     sceneKey: 'CarScene',
     accent: PALETTE.amber,
     icon: 'car',
+  },
+  {
+    title: 'Fish Catch',
+    tagline: 'Tap the fish, leave the trash',
+    sceneKey: 'FishScene',
+    accent: PALETTE.mint,
+    icon: 'fish',
   },
 ];
