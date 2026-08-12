@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSpawner, tickSpawner } from '../spawner';
+import { createSpawner, retuneSpawner, tickSpawner } from '../spawner';
 
 describe('spawner', () => {
   it('does not spawn before the interval elapses', () => {
@@ -38,5 +38,41 @@ describe('spawner', () => {
   it('picks the maximum interval when random() returns 1', () => {
     const state = createSpawner(100, 200, () => 1);
     expect(state.nextInterval).toBe(200);
+  });
+});
+
+describe('retuneSpawner', () => {
+  it('keeps the time already banked toward the next spawn', () => {
+    let state = createSpawner(1000, 1000);
+    state = tickSpawner(state, 400).state;
+    expect(retuneSpawner(state, 500, 700).timer).toBe(400);
+  });
+
+  it('takes the new range', () => {
+    const state = retuneSpawner(createSpawner(1000, 1000), 500, 700);
+    expect(state.minInterval).toBe(500);
+    expect(state.maxInterval).toBe(700);
+  });
+
+  it('pulls a too-long pending interval down into the new range', () => {
+    const state = retuneSpawner(createSpawner(1000, 1000), 500, 700);
+    expect(state.nextInterval).toBe(700);
+  });
+
+  it('pushes a too-short pending interval up into the new range', () => {
+    const state = retuneSpawner(createSpawner(200, 200), 500, 700);
+    expect(state.nextInterval).toBe(500);
+  });
+
+  it('leaves a pending interval that is already in range alone', () => {
+    const state = retuneSpawner(createSpawner(600, 600), 500, 700);
+    expect(state.nextInterval).toBe(600);
+  });
+
+  it('spawns on the next tick when the banked time already covers the new interval', () => {
+    let state = createSpawner(2000, 2000);
+    state = tickSpawner(state, 700).state;
+    state = retuneSpawner(state, 500, 500);
+    expect(tickSpawner(state, 16).shouldSpawn).toBe(true);
   });
 });

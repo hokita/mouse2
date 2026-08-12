@@ -240,6 +240,109 @@ export function createStatPill(scene: Phaser.Scene, options: StatPillOptions): S
   };
 }
 
+// --- back to menu ---------------------------------------------------------
+
+const BACK_WIDTH = 84;
+const BACK_HEIGHT = 44;
+// Centred against the 54px stat pills that sit at y = 18, so the three
+// readouts across the top of a game line up on one axis.
+const BACK_Y = 18 + 54 / 2;
+
+export interface BackButtonOptions {
+  /** The game's own accent, so the way out belongs to the game it leaves. */
+  accent?: number;
+  onTap: () => void;
+  /** Taps are dropped unless this returns true — see `ButtonOptions`. */
+  isArmed?: () => boolean;
+}
+
+/**
+ * The in-run way back to the menu, as a chip in the gap between the two HUD
+ * pills.
+ *
+ * Top centre rather than anywhere nearer the thumb: every game is played by
+ * dragging or tapping the lower half of the screen, and a quit control down
+ * there is one stray finger away from ending a run nobody wanted to end. For
+ * the same reason this is the one control in the app that fires on release
+ * instead of on press — a press that slides off the chip is treated as a
+ * change of mind, not as a tap.
+ */
+export function createBackButton(scene: Phaser.Scene, options: BackButtonOptions): Phaser.GameObjects.Container {
+  const { accent = PALETTE.text, onTap, isArmed } = options;
+
+  const container = scene.add.container(WIDTH / 2, BACK_Y).setDepth(DEPTH.hud);
+  const halfW = BACK_WIDTH / 2;
+  const halfH = BACK_HEIGHT / 2;
+
+  const bg = scene.add.graphics();
+  const paint = (pressed: boolean): void => {
+    bg.clear();
+    bg.fillStyle(pressed ? PALETTE.surface : PALETTE.skyTop, pressed ? 1 : 0.55);
+    bg.fillRoundedRect(-halfW, -halfH, BACK_WIDTH, BACK_HEIGHT, RADIUS.pill);
+    bg.lineStyle(1.5, accent, pressed ? 0.95 : 0.5);
+    bg.strokeRoundedRect(-halfW, -halfH, BACK_WIDTH, BACK_HEIGHT, RADIUS.pill);
+  };
+  paint(false);
+
+  const label = scene.add.text(0, 0, '‹ MENU', labelStyle(13, accent)).setOrigin(0.5, 0.5);
+  label.setLetterSpacing(2);
+
+  container.add([bg, label]);
+  container.setSize(BACK_WIDTH, BACK_HEIGHT);
+  container.setInteractive(hitAreaFor(BACK_WIDTH, BACK_HEIGHT));
+
+  /** True only while a press that started on this chip is still on it. */
+  let holding = false;
+
+  container.on(
+    'pointerdown',
+    (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event: Phaser.Types.Input.EventData
+    ) => {
+      if (isArmed && !isArmed()) {
+        return;
+      }
+      // Stop the press here so it never also reaches the scene-wide pointer
+      // handler, which would read it as a steer and yank the player across
+      // the screen — see the same guard in createButton.
+      event.stopPropagation();
+      holding = true;
+      paint(true);
+    }
+  );
+
+  container.on(
+    'pointerup',
+    (
+      _pointer: Phaser.Input.Pointer,
+      _localX: number,
+      _localY: number,
+      event: Phaser.Types.Input.EventData
+    ) => {
+      if (!holding) {
+        return;
+      }
+      holding = false;
+      paint(false);
+      if (isArmed && !isArmed()) {
+        return;
+      }
+      event.stopPropagation();
+      onTap();
+    }
+  );
+
+  container.on('pointerout', () => {
+    holding = false;
+    paint(false);
+  });
+
+  return container;
+}
+
 // --- game over ------------------------------------------------------------
 
 /** Hit-area config for a centred Container — see `hitAreaFor`. */

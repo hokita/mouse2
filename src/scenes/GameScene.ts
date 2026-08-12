@@ -26,6 +26,7 @@ import {
 import {
   DEPTH,
   STAT_PILL_HEIGHT,
+  createBackButton,
   createGameOverOverlay,
   createStarBackdrop,
   createStatPill,
@@ -209,6 +210,14 @@ export class GameScene extends Phaser.Scene {
       // The ship's own cyan, not rose: the hearts belong to the player, and
       // rose has to mean "tank" and nothing else.
       accent: ACCENT,
+    });
+
+    createBackButton(this, {
+      accent: ACCENT,
+      onTap: () => transitionTo(this, 'MenuScene'),
+      // Only during a live run: once the card is up it owns the way out, and
+      // the scrim in front of the HUD is what the player is tapping anyway.
+      isArmed: () => this.state === 'playing',
     });
 
     this.overlay = createGameOverOverlay(this, {

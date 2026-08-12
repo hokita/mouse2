@@ -36,6 +36,18 @@ export const PALETTE = {
   asphaltDark: 0x282c3b,
   laneLine: 0xeef1ff,
   kerbRed: 0xd94a4a,
+
+  /** Fish Catch's world — a night pond, lit from under the surface. The
+   * backdrop stays as dark as the other games' sky so the menu and the three
+   * games read as one product; the holes are the only bright water. */
+  seaTop: 0x061726,
+  seaDeep: 0x0d3f57,
+  /** A hole's water: dark at its far edge, lit at the near one. */
+  pondDeep: 0x0e4667,
+  pond: 0x2fa5c8,
+  pondRim: 0x08283c,
+  /** The rare fish, and the sparkle that announces it. */
+  gold: 0xffd166,
 } as const;
 
 // A system stack keeps text crisp on every device without a webfont round

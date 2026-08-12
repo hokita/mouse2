@@ -22,6 +22,29 @@ export function createSpawner(
   };
 }
 
+/**
+ * Points a running spawner at a new interval range without losing the time it
+ * has already banked.
+ *
+ * The interval it had already rolled is clamped into the new range rather than
+ * left alone or re-rolled: left alone, a step up in difficulty would not be
+ * felt until after the long wait that was rolled under the old, slower
+ * settings — which is exactly the moment the change is supposed to be
+ * noticeable.
+ */
+export function retuneSpawner(
+  state: SpawnerState,
+  minInterval: number,
+  maxInterval: number
+): SpawnerState {
+  return {
+    minInterval,
+    maxInterval,
+    timer: state.timer,
+    nextInterval: Math.min(maxInterval, Math.max(minInterval, state.nextInterval)),
+  };
+}
+
 export function tickSpawner(
   state: SpawnerState,
   dt: number,
