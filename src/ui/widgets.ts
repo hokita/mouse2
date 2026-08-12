@@ -202,10 +202,13 @@ export interface StatPillOptions {
   accent?: number;
 }
 
+/** Height of a stat pill — exported so scenes can keep clear of the HUD. */
+export const STAT_PILL_HEIGHT = 54;
+
 /** Frosted readout panel — the score and speed displays both use it. */
 export function createStatPill(scene: Phaser.Scene, options: StatPillOptions): StatPill {
   const { x, y, width, label, align = 'left', accent = PALETTE.text } = options;
-  const height = 54;
+  const height = STAT_PILL_HEIGHT;
   const pad = 14;
   const left = align === 'left' ? 0 : -width;
 

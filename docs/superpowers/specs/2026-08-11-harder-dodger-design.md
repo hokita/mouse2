@@ -25,17 +25,27 @@ score and hearts pills at the top of the screen.
 
 The bank-into-turn lean is unchanged: it is driven by horizontal delta only.
 
-### Spawn ramp
+### Fall speed and spawn ramp
+
+Enemies fall at 90 px/s, up from 60. This is the change that makes the game
+harder from the first second; a spawn ramp alone only bites late in a run,
+which a small child rarely reaches. It also shortens each enemy's time on
+screen to about 12.2 s, which is what keeps the spawn floor from piling up.
 
 The enemy spawn interval interpolates linearly with time survived:
 
-| Elapsed | Interval range |
-| --- | --- |
-| 0 s | 1500–2500 ms (today's rate) |
-| 90 s | 400–700 ms |
-| beyond | held at 400–700 ms |
+| Elapsed | Interval range | Enemies alive |
+| --- | --- | --- |
+| 0 s | 1100–1700 ms | ~8.7 |
+| 60 s | 700–1000 ms | ~14.4 |
+| beyond | held at 700–1000 ms | ~14.4 |
 
-Every run opens at the current difficulty and tightens from there.
+Both ends are chosen from the resulting population, not the interval alone:
+population is roughly an enemy's on-screen lifetime over the spawn interval.
+A 400–700 ms floor at the old fall speed meant ~33 enemies covering nearly
+40% of the screen — a wall rather than a difficulty. `difficulty.test.ts`
+asserts the floor's population stays under 15, so changing either the fall
+speed or the floor without revisiting the other fails a test.
 
 ### Strong enemies
 
@@ -50,7 +60,10 @@ Each spawn has a 10% chance of being a tank, from the start of the run:
 - Fires a fixed five-way fan pointing downward, spanning −40° to +40° from
   vertical, at `ENEMY_BULLET_SPEED`, on a 2500–4000 ms interval. The fan does
   not aim at the player.
-- Worth +50. Ordinary enemies stay at +10.
+- Worth +150 — 30 points a bullet against an ordinary enemy's 10. At +50 the
+  tank paid the same per bullet as a normal while having 2.6× the body to
+  stand near, so the correct play was to never shoot one.
+  Ordinary enemies stay at +10.
 - Falls and wobbles exactly like an ordinary enemy, so it reads as "the big
   one", not "the fast one".
 
@@ -74,6 +87,17 @@ Pure logic in `src/core/` with unit tests, Phaser rendering and wiring in
   one fires; the sub-frame timer carryover lost by rebuilding is immaterial.
 - `core/spread.ts` — `fanVelocities(count, spreadRadians, speed)` returns
   `{ vx, vy }` for each bullet, fanned symmetrically about straight down.
+- `core/sweptRect.ts` — `movingRectHitsRect(from, to, target)`, an exact swept
+  test for the player. `sweepX`/`sweepY` give the axis-aligned union of a
+  mover's endpoints, which is exact along one axis but on a diagonal also
+  covers two corners the mover never touched. That was harmless while the
+  ship was rail-bound; with two axes a tap teleport swept up everything in
+  the box between the two positions. This grows the target by the mover's
+  extents and clips the mover's centre path against it instead.
+
+  The enemy-side sweeps keep using `sweepX`/`sweepY`: there the union's
+  generosity errs toward awarding the child their kill, which is the
+  direction this game wants.
 
 ### Deliberately not extracted
 
