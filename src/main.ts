@@ -5,6 +5,7 @@ import { CarScene } from './scenes/CarScene';
 import { FishScene } from './scenes/FishScene';
 import { WIDTH, HEIGHT } from './gameConfig';
 import { PALETTE, css } from './ui/theme';
+import { initAudio } from './audio/bus';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -25,4 +26,7 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [MenuScene, GameScene, CarScene, FishScene],
 };
 
-new Phaser.Game(config);
+// Buffers render off an OfflineAudioContext, which needs no user gesture — so
+// every sound is ready long before the first tap unlocks playback.
+const game = new Phaser.Game(config);
+initAudio(game);

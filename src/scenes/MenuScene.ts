@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playMusic, playSfx } from '../audio/bus';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { GAMES } from '../games';
 import type { GameEntry, GameIcon } from '../games';
@@ -107,6 +108,8 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+
+    playMusic(this, 'menu');
   }
 
   update(_time: number, delta: number): void {
@@ -178,6 +181,8 @@ export class MenuScene extends Phaser.Scene {
         return;
       }
       this.launching = true;
+      playSfx(this, 'tap');
+      playSfx(this, 'launch');
       for (const other of this.cards) {
         other.disableInteractive();
       }
