@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MenuScene } from './scenes/MenuScene';
 import { GameScene } from './scenes/GameScene';
 import { CarScene } from './scenes/CarScene';
+import { FishScene } from './scenes/FishScene';
 import { WIDTH, HEIGHT } from './gameConfig';
 import { PALETTE, css } from './ui/theme';
 
@@ -21,7 +22,7 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [MenuScene, GameScene, CarScene],
+  scene: [MenuScene, GameScene, CarScene, FishScene],
 };
 
 new Phaser.Game(config);
