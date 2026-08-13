@@ -119,10 +119,18 @@ export function ensureFishTexture(
     g.arc(cx, cy, ry * 1.02, Phaser.Math.DegToRad(206), Phaser.Math.DegToRad(334));
     g.strokePath();
 
+    // Confined to the body ellipse. Filled across the full texture width it
+    // tints the transparent margin too, which hangs a faint dark box under
+    // every fish.
     for (let y = Math.floor(h * 0.72); y < h; y += 1) {
+      const dy = (y + 0.5 - cy) / ry;
+      if (Math.abs(dy) >= 1) {
+        continue;
+      }
+      const half = rx * Math.sqrt(1 - dy * dy);
       const depth = (y - h * 0.72) / (h * 0.28);
       g.fillStyle(PALETTE.pondRim, 0.36 * depth);
-      g.fillRect(0, y, w, 1);
+      g.fillRect(cx - half, y, half * 2, 1);
     }
 
     if (rare) {
@@ -210,10 +218,23 @@ export function ensureTrashTexture(scene: Phaser.Scene): string {
     g.lineTo(left + 3, base - 4);
     g.strokePath();
 
+    // Confined to the barrel, and to its rounded base below `base` — a
+    // full-width fill would tint the transparent corners around the foot.
     for (let y = Math.floor(h * 0.74); y < h; y += 1) {
       const depth = (y - h * 0.74) / (h * 0.26);
+      let x0 = left;
+      let x1 = left + width;
+      if (y > base) {
+        const dy = (y - base) / (h * 0.09);
+        if (Math.abs(dy) >= 1) {
+          continue;
+        }
+        const half = (width / 2) * Math.sqrt(1 - dy * dy);
+        x0 = w / 2 - half;
+        x1 = w / 2 + half;
+      }
       g.fillStyle(PALETTE.pondRim, 0.34 * depth);
-      g.fillRect(0, y, w, 1);
+      g.fillRect(x0, y, x1 - x0, 1);
     }
   });
 }
