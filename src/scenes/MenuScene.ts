@@ -7,15 +7,13 @@ import { PALETTE, RADIUS, bodyStyle, displayStyle, labelStyle } from '../ui/them
 import {
   CAR_HEIGHT,
   CAR_WIDTH,
-  FISH_HEIGHT,
-  FISH_WIDTH,
   SHIP_SIZE,
   TEX,
   ensureCarTexture,
-  ensureFishTexture,
   ensureFxTextures,
   ensureShipTexture,
 } from '../ui/textures';
+import { FISH_HEIGHT, FISH_WIDTH, ensureFishTexture } from '../ui/pondTextures';
 import { DEPTH, containerHitArea, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
@@ -214,9 +212,12 @@ export class MenuScene extends Phaser.Scene {
     }
     if (icon === 'fish') {
       // Sized to sit inside the 80px badge plate with a little air around it.
+      // Not submerged: this badge has no water under it, so the waterline
+      // wash ensureFishTexture bakes for the in-game fish would just read as
+      // an unexplained dark smudge here.
       const scale = 0.78;
       return this.add
-        .image(0, 0, ensureFishTexture(this, FISH_COLORS[1]))
+        .image(0, 0, ensureFishTexture(this, FISH_COLORS[1], { submerged: false }))
         .setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
     }
     const scale = 0.72;

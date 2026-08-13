@@ -13,20 +13,23 @@ import { createSpawner, retuneSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE, displayStyle, labelStyle } from '../ui/theme';
+import { TEX, ensureFxTextures } from '../ui/textures';
 import {
   FISH_HEIGHT,
   FISH_WIDTH,
-  POND_HEIGHT,
-  POND_WIDTH,
-  TEX,
+  POND_TEX,
+  POND_TEX_HEIGHT,
+  POND_TEX_WIDTH,
   TRASH_HEIGHT,
   TRASH_WIDTH,
   ensureFishTexture,
-  ensureFxTextures,
-  ensureGradient,
   ensurePondTextures,
+  ensureRingTexture,
+  ensureShimmerTexture,
   ensureTrashTexture,
-} from '../ui/textures';
+} from '../ui/pondTextures';
+import { createPondBackdrop } from './fish/pondBackdrop';
+import { HOLE_COUNT, holeCenter } from './fish/holeGrid';
 import {
   DEPTH,
   createBackButton,
@@ -51,14 +54,6 @@ const LEVEL_STEP_MS = 12_000;
 
 /** The ordinary fish, in the four colours the rest of the project uses. */
 export const FISH_COLORS = [PALETTE.cyan, PALETTE.mint, PALETTE.violet, PALETTE.rose];
-
-const COLUMNS = 3;
-const ROWS = 4;
-const HOLE_COUNT = COLUMNS * ROWS;
-const HOLE_LEFT = 76;
-const HOLE_COLUMN_GAP = 139;
-const HOLE_TOP = 246;
-const HOLE_ROW_GAP = 152;
 
 /**
  * How high above its hole's centre each kind rides.
@@ -138,6 +133,22 @@ export class FishScene extends Phaser.Scene {
   private overlay!: GameOverOverlay;
   private overlayShown = false;
   private state!: GameState;
+  /**
+   * One shared emitter for every splash's droplets, repositioned and
+   * re-exploded rather than rebuilt per splash — see create() and splash().
+   */
+  private drops!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private readonly dropsConfig: Phaser.Types.GameObjects.Particles.ParticleEmitterConfig = {
+    speed: { min: 40, max: 120 },
+    angle: { min: 236, max: 304 },
+    gravityY: 420,
+    lifespan: { min: 260, max: 460 },
+    scale: { start: 0.34, end: 0 },
+    alpha: { start: 0.85, end: 0 },
+    tint: [PALETTE.pond, PALETTE.moon],
+    blendMode: 'ADD',
+    emitting: false,
+  };
 
   constructor() {
     super('FishScene');
@@ -146,13 +157,18 @@ export class FishScene extends Phaser.Scene {
   create(): void {
     ensureFxTextures(this);
     ensurePondTextures(this);
+    ensureShimmerTexture(this);
     ensureTrashTexture(this);
+    ensureRingTexture(this);
     for (const color of FISH_COLORS) {
       ensureFishTexture(this, color);
     }
     ensureFishTexture(this, PALETTE.gold, { rare: true });
 
-    this.createBackdrop();
+    this.drops = this.add.particles(0, 0, TEX.spark, this.dropsConfig);
+    this.drops.setDepth(DEPTH.effects);
+
+    createPondBackdrop(this);
     this.createHoles();
 
     this.scorePill = createStatPill(this, {
@@ -210,63 +226,51 @@ export class FishScene extends Phaser.Scene {
     this.resetState();
   }
 
-  /** Deep water, lit from below, with a slow drift of bubbles rising through it. */
-  private createBackdrop(): void {
-    this.add
-      .image(WIDTH / 2, HEIGHT / 2, ensureGradient(this, PALETTE.seaTop, PALETTE.seaDeep))
-      .setDisplaySize(WIDTH, HEIGHT)
-      .setDepth(DEPTH.backdrop);
-
-    this.add
-      .image(WIDTH / 2, HEIGHT * 0.92, TEX.glow)
-      .setDisplaySize(WIDTH * 1.8, HEIGHT * 0.55)
-      .setTint(PALETTE.cyan)
-      .setAlpha(0.22)
-      .setDepth(DEPTH.backdrop);
-
-    const bubbles = this.add.particles(0, 0, TEX.spark, {
-      x: { min: 0, max: WIDTH },
-      y: HEIGHT + 12,
-      speedY: { min: -70, max: -22 },
-      speedX: { min: -12, max: 12 },
-      scale: { start: 0.38, end: 0.05 },
-      alpha: { start: 0.4, end: 0 },
-      lifespan: { min: 4500, max: 9000 },
-      frequency: 380,
-      tint: [PALETTE.cyan, 0xffffff],
-      blendMode: 'ADD',
-    });
-    bubbles.setDepth(DEPTH.backdrop);
-
-    // Darkens the water behind the HUD pills so the readouts stay legible.
-    this.add
-      .image(WIDTH / 2, 0, TEX.topFade)
-      .setOrigin(0.5, 0)
-      .setDisplaySize(WIDTH, 190)
-      .setAlpha(0.85)
-      .setDepth(DEPTH.effects);
-  }
-
   private createHoles(): void {
     for (let hole = 0; hole < HOLE_COUNT; hole += 1) {
-      const { x, y } = this.holeCenter(hole);
+      const { x, y } = holeCenter(hole);
       this.add
-        .image(x, y, TEX.pondBack)
-        .setDisplaySize(POND_WIDTH, POND_HEIGHT)
+        .image(x, y, POND_TEX.back)
+        .setDisplaySize(POND_TEX_WIDTH, POND_TEX_HEIGHT)
         .setDepth(DEPTH.world - 1);
+
+      // Each hole breathes on its own clock. Started together they would
+      // pulse in lockstep, which reads as a screen effect rather than as
+      // twelve separate patches of moving water.
+      const shimmer = this.add
+        .image(x, y - 3, POND_TEX.shimmer)
+        .setDisplaySize(POND_TEX_WIDTH, POND_TEX_HEIGHT)
+        .setAlpha(0)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        // Its own band between back (world - 1) and the popup sprites/lip
+        // (world and world + 1): sharing a depth with back, which is drawn
+        // NORMAL, would force the renderer to flip blend mode on every
+        // shimmer/back pair and flush the batch each time. Kept together
+        // here, all twelve additive shimmers batch in one draw call.
+        .setDepth(DEPTH.world - 0.5);
+      // Read back the scale setDisplaySize just applied and tween relative to
+      // it, so the animation no longer depends on the shimmer texture happening
+      // to be baked at its display size.
+      const restX = shimmer.scaleX;
+      const restY = shimmer.scaleY;
+      this.tweens.add({
+        targets: shimmer,
+        alpha: { from: 0.05, to: 0.3 },
+        scaleX: { from: restX * 0.72, to: restX },
+        scaleY: { from: restY * 0.72, to: restY },
+        duration: Phaser.Math.Between(2600, 4200),
+        delay: Phaser.Math.Between(0, 2600),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+
       // In front of anything that surfaces here — see ensurePondTextures.
       this.add
-        .image(x, y, TEX.pondLip)
-        .setDisplaySize(POND_WIDTH, POND_HEIGHT)
+        .image(x, y, POND_TEX.lip)
+        .setDisplaySize(POND_TEX_WIDTH, POND_TEX_HEIGHT)
         .setDepth(DEPTH.world + 1);
     }
-  }
-
-  private holeCenter(hole: number): { x: number; y: number } {
-    return {
-      x: HOLE_LEFT + (hole % COLUMNS) * HOLE_COLUMN_GAP,
-      y: HOLE_TOP + Math.floor(hole / COLUMNS) * HOLE_ROW_GAP,
-    };
   }
 
   private resetState(): void {
@@ -380,18 +384,23 @@ export class FishScene extends Phaser.Scene {
     }
 
     const kind = pickKind(level.odds);
-    const { x, y } = this.holeCenter(hole);
+    const { x, y } = holeCenter(hole);
     const top = y - LIFT[kind];
 
     let glow: Phaser.GameObjects.Image | null = null;
     if (kind === 'rare') {
+      // One band behind every hole's `back` image (world - 1), not level with
+      // it — so every neighbouring hole's interior draws over the aura
+      // instead of the aura winning ties against them. Its own hole then
+      // draws over its lower half too, which is correct: the aura should
+      // read as light coming up out of the water, not sitting on top of it.
       glow = this.add
         .image(x, top, TEX.glow)
         .setDisplaySize(FISH_WIDTH * 2.2, FISH_HEIGHT * 2.6)
         .setTint(PALETTE.gold)
         .setAlpha(0.45)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setDepth(DEPTH.world - 1);
+        .setDepth(DEPTH.world - 2);
     }
 
     const sprite = this.add.image(x, top, this.textureFor(kind)).setDepth(DEPTH.world);
@@ -420,7 +429,7 @@ export class FishScene extends Phaser.Scene {
 
   private textureFor(kind: PopupKind): string {
     if (kind === 'trash') {
-      return TEX.trash;
+      return POND_TEX.trash;
     }
     if (kind === 'rare') {
       return ensureFishTexture(this, PALETTE.gold, { rare: true });
@@ -512,10 +521,10 @@ export class FishScene extends Phaser.Scene {
   private dive(popup: Popup): void {
     popup.leaving = true;
     this.tweens.killTweensOf(popup.sprite);
-    this.splash(popup.sprite.x, this.holeCenter(popup.hole).y, PALETTE.pond);
+    this.splash(popup.sprite.x, holeCenter(popup.hole).y, PALETTE.pond);
     this.tweens.add({
       targets: popup.sprite,
-      y: this.holeCenter(popup.hole).y,
+      y: holeCenter(popup.hole).y,
       scale: 0.3,
       alpha: 0,
       duration: 220,
@@ -549,39 +558,48 @@ export class FishScene extends Phaser.Scene {
 
   /** Expanding ring at the waterline — every arrival and departure gets one. */
   private splash(x: number, y: number, color: number): void {
-    const ring = this.add
-      .image(x, y, TEX.glow)
-      .setDisplaySize(46, 22)
-      .setTint(color)
-      .setAlpha(0.6)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(DEPTH.effects);
-    this.tweens.add({
-      targets: ring,
-      displayWidth: 150,
-      displayHeight: 62,
-      alpha: 0,
-      duration: 420,
-      ease: 'Cubic.easeOut',
-      onComplete: () => ring.destroy(),
-    });
+    this.expandRing(x, y, color, { from: 40, to: 156, alpha: 0.75, duration: 460 });
+
+    // A handful of droplets thrown up out of the ring. Emitted upward and
+    // pulled back down, because a splash that only spreads sideways reads as
+    // a shockwave. The emitter is shared (see create()) — at the last level's
+    // several splashes a second, building and tearing one down per splash was
+    // wasteful, so this repositions and re-explodes it instead. Only the tint
+    // varies per splash, and setParticleTint retargets that one op; setConfig
+    // would rebuild every op on the emitter to change it.
+    this.drops.setParticleTint([color, PALETTE.moon]);
+    this.drops.setPosition(x, y - 4);
+    this.drops.explode(5);
   }
 
   /** Feedback for a tap that hit nothing, so the water never feels dead. */
   private ripple(x: number, y: number): void {
+    this.expandRing(x, y, PALETTE.cyan, { from: 20, to: 88, alpha: 0.4, duration: 360 });
+  }
+
+  // ensureRingTexture bakes the ring round; the 0.44 factor here is what
+  // flattens it into the perspective the holes imply, so spec.from/spec.to
+  // are genuinely the ring's rendered display width, not a pre-flattened
+  // number that gets squashed again.
+  private expandRing(
+    x: number,
+    y: number,
+    color: number,
+    spec: { from: number; to: number; alpha: number; duration: number }
+  ): void {
     const ring = this.add
-      .image(x, y, TEX.glow)
-      .setDisplaySize(24, 16)
-      .setTint(PALETTE.cyan)
-      .setAlpha(0.35)
+      .image(x, y, POND_TEX.ring)
+      .setDisplaySize(spec.from, spec.from * 0.44)
+      .setTint(color)
+      .setAlpha(spec.alpha)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(DEPTH.effects);
     this.tweens.add({
       targets: ring,
-      displayWidth: 80,
-      displayHeight: 48,
+      displayWidth: spec.to,
+      displayHeight: spec.to * 0.44,
       alpha: 0,
-      duration: 320,
+      duration: spec.duration,
       ease: 'Cubic.easeOut',
       onComplete: () => ring.destroy(),
     });

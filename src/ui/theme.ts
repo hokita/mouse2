@@ -42,12 +42,13 @@ export const PALETTE = {
    * games read as one product; the holes are the only bright water. */
   seaTop: 0x061726,
   seaDeep: 0x0d3f57,
-  /** A hole's water: dark at its far edge, lit at the near one. */
-  pondDeep: 0x0e4667,
   pond: 0x2fa5c8,
   pondRim: 0x08283c,
   /** The rare fish, and the sparkle that announces it. */
   gold: 0xffd166,
+  /** Moonlight. One light source, overhead — every rim light in the pond
+   * agrees with it, which is most of what stops the scene looking flat. */
+  moon: 0xdfe9ff,
 } as const;
 
 // A system stack keeps text crisp on every device without a webfont round
