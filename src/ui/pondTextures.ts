@@ -110,6 +110,21 @@ export function ensureFishTexture(
     g.arc(w * 0.83, h * 0.55, 5.5, Phaser.Math.DegToRad(35), Phaser.Math.DegToRad(135));
     g.strokePath();
 
+    // Moonlight along the back, and water over the belly. A fish is lifted
+    // only 18px out of a hole, so its lowest band is still at the waterline —
+    // tinting it toward the pond is what stops the sprite reading as a decal
+    // laid on top of the hole.
+    g.lineStyle(2, PALETTE.moon, 0.3);
+    g.beginPath();
+    g.arc(cx, cy, ry * 1.02, Phaser.Math.DegToRad(206), Phaser.Math.DegToRad(334));
+    g.strokePath();
+
+    for (let y = Math.floor(h * 0.72); y < h; y += 1) {
+      const depth = (y - h * 0.72) / (h * 0.28);
+      g.fillStyle(PALETTE.pondRim, 0.36 * depth);
+      g.fillRect(0, y, w, 1);
+    }
+
     if (rare) {
       for (const [x, y, r] of [
         [w * 0.34, h * 0.3, 4],
@@ -187,6 +202,19 @@ export function ensureTrashTexture(scene: Phaser.Scene): string {
     g.fillRect(w - left - 1.5, top, 1.5, base - top);
     g.lineStyle(2, 0x232941, 0.75);
     g.strokeEllipse(w / 2, top, width, h * 0.19);
+
+    // The same overhead moon, and the same waterline.
+    g.lineStyle(1.5, PALETTE.moon, 0.22);
+    g.beginPath();
+    g.moveTo(left + 3, top + h * 0.08);
+    g.lineTo(left + 3, base - 4);
+    g.strokePath();
+
+    for (let y = Math.floor(h * 0.74); y < h; y += 1) {
+      const depth = (y - h * 0.74) / (h * 0.26);
+      g.fillStyle(PALETTE.pondRim, 0.34 * depth);
+      g.fillRect(0, y, w, 1);
+    }
   });
 }
 
