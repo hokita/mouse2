@@ -17,9 +17,9 @@ import { TEX, ensureFxTextures } from '../ui/textures';
 import {
   FISH_HEIGHT,
   FISH_WIDTH,
-  POND_HEIGHT,
   POND_TEX,
-  POND_WIDTH,
+  POND_TEX_HEIGHT,
+  POND_TEX_WIDTH,
   TRASH_HEIGHT,
   TRASH_WIDTH,
   ensureFishTexture,
@@ -219,7 +219,7 @@ export class FishScene extends Phaser.Scene {
       const { x, y } = this.holeCenter(hole);
       this.add
         .image(x, y, POND_TEX.back)
-        .setDisplaySize(POND_WIDTH, POND_HEIGHT)
+        .setDisplaySize(POND_TEX_WIDTH, POND_TEX_HEIGHT)
         .setDepth(DEPTH.world - 1);
 
       // Each hole breathes on its own clock. Started together they would
@@ -227,12 +227,7 @@ export class FishScene extends Phaser.Scene {
       // twelve separate patches of moving water.
       const shimmer = this.add
         .image(x, y - 3, POND_TEX.shimmer)
-        // The tween below drives scaleX/scaleY with absolute values (0.72 to
-        // 1), which only lands right because ensureShimmerTexture bakes this
-        // texture at exactly POND_WIDTH x POND_HEIGHT — making this call a
-        // no-op that leaves scale at 1. Change that texture's dimensions and
-        // this silently breaks the idle animation.
-        .setDisplaySize(POND_WIDTH, POND_HEIGHT)
+        .setDisplaySize(POND_TEX_WIDTH, POND_TEX_HEIGHT)
         .setAlpha(0)
         .setBlendMode(Phaser.BlendModes.ADD)
         // Its own band between back (world - 1) and the popup sprites/lip
@@ -241,11 +236,16 @@ export class FishScene extends Phaser.Scene {
         // shimmer/back pair and flush the batch each time. Kept together
         // here, all twelve additive shimmers batch in one draw call.
         .setDepth(DEPTH.world - 0.5);
+      // Read back the scale setDisplaySize just applied and tween relative to
+      // it, so the animation no longer depends on the shimmer texture happening
+      // to be baked at its display size.
+      const restX = shimmer.scaleX;
+      const restY = shimmer.scaleY;
       this.tweens.add({
         targets: shimmer,
         alpha: { from: 0.05, to: 0.3 },
-        scaleX: { from: 0.72, to: 1 },
-        scaleY: { from: 0.72, to: 1 },
+        scaleX: { from: restX * 0.72, to: restX },
+        scaleY: { from: restY * 0.72, to: restY },
         duration: Phaser.Math.Between(2600, 4200),
         delay: Phaser.Math.Between(0, 2600),
         yoyo: true,
@@ -256,7 +256,7 @@ export class FishScene extends Phaser.Scene {
       // In front of anything that surfaces here — see ensurePondTextures.
       this.add
         .image(x, y, POND_TEX.lip)
-        .setDisplaySize(POND_WIDTH, POND_HEIGHT)
+        .setDisplaySize(POND_TEX_WIDTH, POND_TEX_HEIGHT)
         .setDepth(DEPTH.world + 1);
     }
   }

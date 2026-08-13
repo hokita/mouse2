@@ -29,6 +29,17 @@ export const TRASH_WIDTH = 44;
 export const TRASH_HEIGHT = 56;
 export const POND_WIDTH = 128;
 export const POND_HEIGHT = 64;
+/**
+ * The canvas the hole is baked on, padded well past the hole itself.
+ *
+ * The hole stays POND_WIDTH x POND_HEIGHT; the margin is where its contact
+ * shadow falls off. Drawn on a canvas the size of the hole, that shadow has
+ * nowhere to go and degenerates into a hard step at the texture edge. Sprites
+ * are displayed at this padded size, which moves no geometry: the hole is
+ * still centred where it always was.
+ */
+export const POND_TEX_WIDTH = 168;
+export const POND_TEX_HEIGHT = 104;
 
 /**
  * A round fish in profile, nose to the right: big eye, fanned tail, a pale
@@ -239,11 +250,16 @@ export function ensureTrashTexture(scene: Phaser.Scene): string {
   });
 }
 
-/** Two faint caustic rings, scaled and faded on a slow loop inside each hole. */
+/**
+ * Two faint caustic rings, scaled and faded on a slow loop inside each hole.
+ *
+ * Baked on the same padded canvas as the hole halves so all three stack at
+ * one display size, and so the scene's scale tween has a known basis.
+ */
 export function ensureShimmerTexture(scene: Phaser.Scene): string {
-  return define(scene, POND_TEX.shimmer, POND_WIDTH, POND_HEIGHT, (g) => {
-    const cx = POND_WIDTH / 2;
-    const cy = POND_HEIGHT / 2;
+  return define(scene, POND_TEX.shimmer, POND_TEX_WIDTH, POND_TEX_HEIGHT, (g) => {
+    const cx = POND_TEX_WIDTH / 2;
+    const cy = POND_TEX_HEIGHT / 2;
     g.lineStyle(2.5, PALETTE.moon, 0.5);
     g.strokeEllipse(cx, cy, POND_WIDTH * 0.46, POND_HEIGHT * 0.34);
     g.lineStyle(1.5, PALETTE.moon, 0.34);
@@ -383,76 +399,86 @@ export function ensureRingTexture(scene: Phaser.Scene): string {
  * twelve beans floating on the water.
  */
 export function ensurePondTextures(scene: Phaser.Scene): void {
-  const cx = POND_WIDTH / 2;
-  const cy = POND_HEIGHT / 2;
-  // The hole is inset from the texture edge so there is room to lay a shadow
-  // and a wet rim around it without growing the texture — and so the sprite
-  // still measures exactly POND_WIDTH x POND_HEIGHT at the use site.
+  const cx = POND_TEX_WIDTH / 2;
+  const cy = POND_TEX_HEIGHT / 2;
   const rimW = 122;
   const rimH = 58;
   const holeW = 112;
   const holeH = 50;
-  const rimColor = shade(PALETTE.seaDeep, 0.16);
+  // The lit wet edge around the opening, and the brightest thing in the
+  // texture. This is what carries the illusion: a hole is read from its edge
+  // catching light, not from its inside being bright. An interior brighter
+  // than the surface it is cut into is the shading of a dome, which is what
+  // this used to be.
+  const rimColor = shade(PALETTE.pond, -0.42);
 
-  define(scene, POND_TEX.back, POND_WIDTH, POND_HEIGHT, (g) => {
-    // Four rings, sized to stay inside the 128x64 canvas: grown any further
-    // the outer ones are clipped by the texture edge and the falloff ends in
-    // a hard cut instead of fading out.
-    for (let i = 4; i > 0; i -= 1) {
-      g.fillStyle(0x000000, 0.06);
-      g.fillEllipse(cx, cy + 2, rimW + i * 1.4, rimH + i * 0.5);
+  define(scene, POND_TEX.back, POND_TEX_WIDTH, POND_TEX_HEIGHT, (g) => {
+    // Contact shadow. It needs the padding to exist at all: squeezed inside
+    // the rim's own bounds the fourteen steps land on top of each other and
+    // the falloff becomes a hard edge.
+    for (let i = 14; i > 0; i -= 1) {
+      g.fillStyle(0x000000, 0.035);
+      g.fillEllipse(cx, cy + 3, rimW + i * 2.6, rimH + i * 2);
     }
 
-    // The wet rim: the pond surface immediately around the opening, lifted a
-    // little out of the backdrop so the hole sits *in* something.
-    // Drawn a shade smaller than the lip's own ellipse. fillEllipse
-    // antialiases its edge while the lip covers the lower half with
-    // hard-edged scanlines, so a rim at the full size leaves a fringe of
-    // itself showing under every hole.
     g.fillStyle(rimColor, 1);
     g.fillEllipse(cx, cy, rimW - 1.5, rimH - 1.5);
 
-    // The opening, filled row by row. Brightness peaks just below the top
-    // rim — the sliver above that peak is the rim's own shadow, and without
-    // it the lit far wall runs straight into the rim and the two merge.
+    // The opening. Darkest just under the top rim, where the rim itself cuts
+    // the moon off, easing only slightly lighter toward the bottom where
+    // light reaches the far wall. Every value stays below the water around
+    // it, because that is what recessed means.
     const rx = holeW / 2;
     const ry = holeH / 2;
-    const deep = Phaser.Display.Color.IntegerToColor(PALETTE.pondRim);
-    const wall = Phaser.Display.Color.IntegerToColor(PALETTE.pond);
-    for (let y = 0; y < POND_HEIGHT; y += 1) {
+    const shadowed = Phaser.Display.Color.IntegerToColor(0x03101a);
+    const farWall = Phaser.Display.Color.IntegerToColor(shade(PALETTE.pondRim, 0.12));
+    for (let y = 0; y < POND_TEX_HEIGHT; y += 1) {
       const dy = (y + 0.5 - cy) / ry;
       if (Math.abs(dy) >= 1) {
         continue;
       }
       const half = rx * Math.sqrt(1 - dy * dy);
       const t = (dy + 1) / 2;
-      const brightness = Math.pow(1 - t, 1.6) * (0.35 + 0.65 * Math.min(t / 0.14, 1));
-      const c = Phaser.Display.Color.Interpolate.ColorWithColor(deep, wall, 100, Math.round(brightness * 100));
+      const lit = Math.pow(t, 1.5);
+      const c = Phaser.Display.Color.Interpolate.ColorWithColor(shadowed, farWall, 100, Math.round(lit * 100));
       g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b), 1);
       g.fillRect(cx - half, y, half * 2, 1);
     }
 
-    // A specular crescent high on the inner wall, where the moon lands.
-    g.lineStyle(2.5, PALETTE.moon, 0.16);
-    g.beginPath();
-    g.arc(cx, cy, ry * 0.86, Phaser.Math.DegToRad(205), Phaser.Math.DegToRad(335));
-    g.strokePath();
+    // The rim's shadow thrown down the inside of the far wall — the single
+    // strongest cue that this is an opening. Walked as segments along the
+    // ellipse: g.arc draws a circle, so on a 112x50 opening it would cut
+    // across the middle instead of hugging the edge.
+    for (let pass = 0; pass < 4; pass += 1) {
+      g.lineStyle(3, 0x000000, 0.15 - pass * 0.032);
+      g.beginPath();
+      for (let i = 0; i <= 30; i += 1) {
+        const a = Math.PI + (i / 30) * Math.PI;
+        const px = cx + Math.cos(a) * (rx - 1 - pass * 2);
+        const py = cy + Math.sin(a) * (ry - 1 - pass * 1.1);
+        if (i === 0) {
+          g.moveTo(px, py);
+        } else {
+          g.lineTo(px, py);
+        }
+      }
+      g.strokePath();
+    }
 
-    // Caustics, kept to the lit half where light could plausibly reach.
-    g.lineStyle(1.5, 0xffffff, 0.07);
-    g.strokeEllipse(cx, cy - 3, holeW * 0.54, holeH * 0.42);
-    g.lineStyle(1, 0xffffff, 0.05);
-    g.strokeEllipse(cx, cy - 5, holeW * 0.28, holeH * 0.22);
+    // One faint caustic low in the pool, where light that got in would land.
+    g.lineStyle(1.5, PALETTE.moon, 0.05);
+    g.strokeEllipse(cx, cy + ry * 0.34, holeW * 0.44, holeH * 0.3);
   });
 
-  define(scene, POND_TEX.lip, POND_WIDTH, POND_HEIGHT, (g) => {
-    // The near rim: the water surface in front of the opening. It runs from a
-    // lit waterline down to the backdrop's own colour, so the hole melts into
-    // the pond at its bottom edge instead of ending on a flat plate.
-    const near = Phaser.Display.Color.IntegerToColor(shade(PALETTE.pondRim, 0.12));
-    const far = Phaser.Display.Color.IntegerToColor(PALETTE.seaTop);
-    for (let y = Math.floor(cy); y < POND_HEIGHT; y += 1) {
-      const dy = (y + 0.5 - cy) / (rimH / 2);
+  define(scene, POND_TEX.lip, POND_TEX_WIDTH, POND_TEX_HEIGHT, (g) => {
+    // The near rim, in front of whatever surfaced. It starts on the same lit
+    // wet edge as the rim behind it and darkens into the backdrop, so the
+    // hole keeps one continuous outline and melts into the water at its foot.
+    const near = Phaser.Display.Color.IntegerToColor(rimColor);
+    const far = Phaser.Display.Color.IntegerToColor(shade(PALETTE.seaTop, -0.25));
+    const halfH = rimH / 2;
+    for (let y = Math.floor(cy); y < cy + halfH + 1; y += 1) {
+      const dy = (y + 0.5 - cy) / halfH;
       if (Math.abs(dy) >= 1) {
         continue;
       }
@@ -462,12 +488,21 @@ export function ensurePondTextures(scene: Phaser.Scene): void {
       g.fillRect(cx - half, y, half * 2, 1);
     }
 
-    // The waterline, drawn as a thin lens rather than a row of bars: an
-    // ellipse this flat tapers off at its own ends, where a run of rects
-    // leaves a dotted seam and a stair-stepped bow.
-    g.fillStyle(PALETTE.moon, 0.1);
-    g.fillEllipse(cx, cy, rimW * 0.96, 7);
-    g.fillStyle(PALETTE.moon, 0.3);
-    g.fillEllipse(cx, cy, rimW * 0.88, 2.6);
+    // The waterline, as contiguous 1px columns whose alpha falls off toward
+    // the ends. A single flat ellipse does not do that: at 41:1 it rasterises
+    // to a bar with square ends, which is the very seam this replaced.
+    const span = rimW * 0.94;
+    const left = cx - span / 2;
+    for (let x = 0; x < POND_TEX_WIDTH; x += 1) {
+      const u = (x + 0.5 - left) / span;
+      if (u < 0 || u > 1) {
+        continue;
+      }
+      const fade = Math.sin(Math.PI * u);
+      g.fillStyle(PALETTE.moon, 0.1 * Math.pow(fade, 1.2));
+      g.fillRect(x, cy - 3.6, 1, 7.2);
+      g.fillStyle(PALETTE.moon, 0.34 * Math.pow(fade, 1.6));
+      g.fillRect(x, cy - 1.2, 1, 2.4);
+    }
   });
 }
