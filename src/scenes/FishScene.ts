@@ -562,13 +562,12 @@ export class FishScene extends Phaser.Scene {
 
     // A handful of droplets thrown up out of the ring. Emitted upward and
     // pulled back down, because a splash that only spreads sideways reads as
-    // a shockwave. The emitter is shared (see create()) — at the last
-    // level's several splashes a second, building and tearing one down per
-    // splash was wasteful, so this repositions and re-explodes it instead.
-    // setConfig needs the whole config, not just the changed tint: passed a
-    // partial config it would reset every other op back to its own default.
-    this.dropsConfig.tint = [color, PALETTE.moon];
-    this.drops.setConfig(this.dropsConfig);
+    // a shockwave. The emitter is shared (see create()) — at the last level's
+    // several splashes a second, building and tearing one down per splash was
+    // wasteful, so this repositions and re-explodes it instead. Only the tint
+    // varies per splash, and setParticleTint retargets that one op; setConfig
+    // would rebuild every op on the emitter to change it.
+    this.drops.setParticleTint([color, PALETTE.moon]);
     this.drops.setPosition(x, y - 4);
     this.drops.explode(5);
   }
