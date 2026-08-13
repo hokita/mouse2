@@ -92,21 +92,21 @@ export function createPondBackdrop(scene: Phaser.Scene): void {
 // and in the strip above the level toast. Everything sits below the hole
 // rims, so a pad that reaches a hole tucks behind it instead of colliding.
 const LILIES: { x: number; y: number; scale: number; angle: number }[] = [
-  { x: 44, y: 172, scale: 0.62, angle: 24 },
-  { x: 388, y: 158, scale: 0.5, angle: -68 },
-  { x: 70, y: 322, scale: 0.78, angle: 132 },
-  { x: 356, y: 336, scale: 0.56, angle: -18 },
-  { x: 214, y: 474, scale: 0.46, angle: 78 },
-  { x: 62, y: 626, scale: 0.68, angle: -114 },
-  { x: 372, y: 616, scale: 0.54, angle: 40 },
-  { x: 148, y: 782, scale: 0.86, angle: 8 },
+  { x: 44, y: 172, scale: 1, angle: 24 },
+  { x: 388, y: 158, scale: 0.82, angle: -68 },
+  { x: 70, y: 322, scale: 1.2, angle: 132 },
+  { x: 356, y: 336, scale: 0.9, angle: -18 },
+  { x: 214, y: 474, scale: 0.76, angle: 78 },
+  { x: 62, y: 626, scale: 1.1, angle: -114 },
+  { x: 372, y: 616, scale: 0.88, angle: 40 },
+  { x: 148, y: 782, scale: 1.3, angle: 8 },
 ];
 
 const REEDS: { x: number; y: number; scale: number; flip: boolean }[] = [
-  { x: 22, y: 214, scale: 0.72, flip: false },
-  { x: 404, y: 206, scale: 0.62, flip: true },
-  { x: 350, y: 824, scale: 0.9, flip: true },
-  { x: 40, y: 830, scale: 0.78, flip: false },
+  { x: 22, y: 214, scale: 1, flip: false },
+  { x: 404, y: 206, scale: 0.86, flip: true },
+  { x: 350, y: 824, scale: 1.2, flip: true },
+  { x: 40, y: 830, scale: 1.05, flip: false },
 ];
 
 function plantPond(scene: Phaser.Scene): void {
