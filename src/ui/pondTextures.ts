@@ -11,6 +11,7 @@ export const POND_TEX = {
   back: 'pond-back',
   lip: 'pond-lip',
   trash: 'pond-trash',
+  shimmer: 'pond-shimmer',
 } as const;
 
 export function fishTexture(color: number, rare: boolean): string {
@@ -183,6 +184,18 @@ export function ensureTrashTexture(scene: Phaser.Scene): string {
     g.fillRect(w - left - 1.5, top, 1.5, base - top);
     g.lineStyle(2, 0x232941, 0.75);
     g.strokeEllipse(w / 2, top, width, h * 0.19);
+  });
+}
+
+/** Two faint caustic rings, scaled and faded on a slow loop inside each hole. */
+export function ensureShimmerTexture(scene: Phaser.Scene): string {
+  return define(scene, POND_TEX.shimmer, POND_WIDTH, POND_HEIGHT, (g) => {
+    const cx = POND_WIDTH / 2;
+    const cy = POND_HEIGHT / 2;
+    g.lineStyle(2.5, PALETTE.moon, 0.5);
+    g.strokeEllipse(cx, cy, POND_WIDTH * 0.46, POND_HEIGHT * 0.34);
+    g.lineStyle(1.5, PALETTE.moon, 0.34);
+    g.strokeEllipse(cx, cy, POND_WIDTH * 0.24, POND_HEIGHT * 0.18);
   });
 }
 

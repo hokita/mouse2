@@ -24,6 +24,7 @@ import {
   TRASH_WIDTH,
   ensureFishTexture,
   ensurePondTextures,
+  ensureShimmerTexture,
   ensureTrashTexture,
 } from '../ui/pondTextures';
 import {
@@ -145,6 +146,7 @@ export class FishScene extends Phaser.Scene {
   create(): void {
     ensureFxTextures(this);
     ensurePondTextures(this);
+    ensureShimmerTexture(this);
     ensureTrashTexture(this);
     for (const color of FISH_COLORS) {
       ensureFishTexture(this, color);
@@ -253,6 +255,28 @@ export class FishScene extends Phaser.Scene {
         .image(x, y, POND_TEX.back)
         .setDisplaySize(POND_WIDTH, POND_HEIGHT)
         .setDepth(DEPTH.world - 1);
+
+      // Each hole breathes on its own clock. Started together they would
+      // pulse in lockstep, which reads as a screen effect rather than as
+      // twelve separate patches of moving water.
+      const shimmer = this.add
+        .image(x, y - 3, POND_TEX.shimmer)
+        .setDisplaySize(POND_WIDTH, POND_HEIGHT)
+        .setAlpha(0)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(DEPTH.world - 1);
+      this.tweens.add({
+        targets: shimmer,
+        alpha: { from: 0.05, to: 0.3 },
+        scaleX: { from: 0.72, to: 1 },
+        scaleY: { from: 0.72, to: 1 },
+        duration: Phaser.Math.Between(2600, 4200),
+        delay: Phaser.Math.Between(0, 2600),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+
       // In front of anything that surfaces here — see ensurePondTextures.
       this.add
         .image(x, y, POND_TEX.lip)
