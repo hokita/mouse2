@@ -218,8 +218,12 @@ export function ensurePondTextures(scene: Phaser.Scene): void {
 
     // The wet rim: the pond surface immediately around the opening, lifted a
     // little out of the backdrop so the hole sits *in* something.
+    // Drawn a shade smaller than the lip's own ellipse. fillEllipse
+    // antialiases its edge while the lip covers the lower half with
+    // hard-edged scanlines, so a rim at the full size leaves a fringe of
+    // itself showing under every hole.
     g.fillStyle(rimColor, 1);
-    g.fillEllipse(cx, cy, rimW, rimH);
+    g.fillEllipse(cx, cy, rimW - 1.5, rimH - 1.5);
 
     // The opening, filled row by row. Brightness peaks just below the top
     // rim — the sliver above that peak is the rim's own shadow, and without
