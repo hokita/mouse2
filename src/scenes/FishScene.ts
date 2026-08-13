@@ -13,7 +13,7 @@ import { createSpawner, retuneSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE, displayStyle, labelStyle } from '../ui/theme';
-import { TEX, ensureFxTextures, ensureGradient } from '../ui/textures';
+import { TEX, ensureFxTextures } from '../ui/textures';
 import {
   FISH_HEIGHT,
   FISH_WIDTH,
@@ -27,6 +27,7 @@ import {
   ensureShimmerTexture,
   ensureTrashTexture,
 } from '../ui/pondTextures';
+import { createPondBackdrop } from './fish/pondBackdrop';
 import {
   DEPTH,
   createBackButton,
@@ -153,7 +154,7 @@ export class FishScene extends Phaser.Scene {
     }
     ensureFishTexture(this, PALETTE.gold, { rare: true });
 
-    this.createBackdrop();
+    createPondBackdrop(this);
     this.createHoles();
 
     this.scorePill = createStatPill(this, {
@@ -209,43 +210,6 @@ export class FishScene extends Phaser.Scene {
 
     this.cameras.main.fadeIn(280, 0, 0, 0);
     this.resetState();
-  }
-
-  /** Deep water, lit from below, with a slow drift of bubbles rising through it. */
-  private createBackdrop(): void {
-    this.add
-      .image(WIDTH / 2, HEIGHT / 2, ensureGradient(this, PALETTE.seaTop, PALETTE.seaDeep))
-      .setDisplaySize(WIDTH, HEIGHT)
-      .setDepth(DEPTH.backdrop);
-
-    this.add
-      .image(WIDTH / 2, HEIGHT * 0.92, TEX.glow)
-      .setDisplaySize(WIDTH * 1.8, HEIGHT * 0.55)
-      .setTint(PALETTE.cyan)
-      .setAlpha(0.22)
-      .setDepth(DEPTH.backdrop);
-
-    const bubbles = this.add.particles(0, 0, TEX.spark, {
-      x: { min: 0, max: WIDTH },
-      y: HEIGHT + 12,
-      speedY: { min: -70, max: -22 },
-      speedX: { min: -12, max: 12 },
-      scale: { start: 0.38, end: 0.05 },
-      alpha: { start: 0.4, end: 0 },
-      lifespan: { min: 4500, max: 9000 },
-      frequency: 380,
-      tint: [PALETTE.cyan, 0xffffff],
-      blendMode: 'ADD',
-    });
-    bubbles.setDepth(DEPTH.backdrop);
-
-    // Darkens the water behind the HUD pills so the readouts stay legible.
-    this.add
-      .image(WIDTH / 2, 0, TEX.topFade)
-      .setOrigin(0.5, 0)
-      .setDisplaySize(WIDTH, 190)
-      .setAlpha(0.85)
-      .setDepth(DEPTH.effects);
   }
 
   private createHoles(): void {
