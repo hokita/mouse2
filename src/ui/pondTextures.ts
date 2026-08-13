@@ -12,13 +12,21 @@ export const POND_TEX = {
   lip: 'pond-lip',
   trash: 'pond-trash',
   shimmer: 'pond-shimmer',
-  lily: 'pond-lily',
   reeds: 'pond-reeds',
   ring: 'pond-ring',
 } as const;
 
-export function fishTexture(color: number, rare: boolean): string {
-  return `fish-${color.toString(16)}${rare ? '-rare' : ''}`;
+/**
+ * A lily pad's notch can be baked at any angle (see ensureLilyTexture), so
+ * unlike the rest of the pond art it has no single fixed texture — each
+ * orientation gets its own cache key instead of a POND_TEX member.
+ */
+function lilyTextureKey(notchDeg: number): string {
+  return `pond-lily-${notchDeg}`;
+}
+
+export function fishTexture(color: number, rare: boolean, submerged: boolean): string {
+  return `fish-${color.toString(16)}${rare ? '-rare' : ''}${submerged ? '' : '-dry'}`;
 }
 
 // As elsewhere, the art is drawn at exactly the size the game tests taps
@@ -50,10 +58,11 @@ export const POND_TEX_HEIGHT = 104;
 export function ensureFishTexture(
   scene: Phaser.Scene,
   color: number,
-  options: { rare?: boolean } = {}
+  options: { rare?: boolean; submerged?: boolean } = {}
 ): string {
   const rare = options.rare === true;
-  return define(scene, fishTexture(color, rare), FISH_WIDTH, FISH_HEIGHT, (g) => {
+  const submerged = options.submerged !== false;
+  return define(scene, fishTexture(color, rare, submerged), FISH_WIDTH, FISH_HEIGHT, (g) => {
     const w = FISH_WIDTH;
     const h = FISH_HEIGHT;
     const cx = w * 0.56;
@@ -132,16 +141,19 @@ export function ensureFishTexture(
 
     // Confined to the body ellipse. Filled across the full texture width it
     // tints the transparent margin too, which hangs a faint dark box under
-    // every fish.
-    for (let y = Math.floor(h * 0.72); y < h; y += 1) {
-      const dy = (y + 0.5 - cy) / ry;
-      if (Math.abs(dy) >= 1) {
-        continue;
+    // every fish. Skipped for a fish drawn where there is no water — the menu
+    // card, say — where this wash would just read as an unexplained shadow.
+    if (submerged) {
+      for (let y = Math.floor(h * 0.72); y < h; y += 1) {
+        const dy = (y + 0.5 - cy) / ry;
+        if (Math.abs(dy) >= 1) {
+          continue;
+        }
+        const half = rx * Math.sqrt(1 - dy * dy);
+        const depth = (y - h * 0.72) / (h * 0.28);
+        g.fillStyle(PALETTE.pondRim, 0.36 * depth);
+        g.fillRect(cx - half, y, half * 2, 1);
       }
-      const half = rx * Math.sqrt(1 - dy * dy);
-      const depth = (y - h * 0.72) / (h * 0.28);
-      g.fillStyle(PALETTE.pondRim, 0.36 * depth);
-      g.fillRect(cx - half, y, half * 2, 1);
     }
 
     if (rare) {
@@ -275,9 +287,16 @@ export const LILY_SIZE = 64;
  * is drawn as a polygon that returns to the centre rather than cut out of a
  * circle — Graphics has no way to subtract a shape, and filling the notch with
  * a background colour would only work over one exact backdrop.
+ *
+ * `notchDeg` rotates only the notch's position around the disc. The rim
+ * light, the cast shadow and the veins all stay fixed, because they are baked
+ * as if lit from directly overhead — rotating them along with the notch would
+ * rotate that lighting too, and a pad plated at, say, 132° would end up lit
+ * from below with its shadow thrown upward. Callers that want a different
+ * silhouette pick a different `notchDeg`, not a rotated sprite.
  */
-export function ensureLilyTexture(scene: Phaser.Scene): string {
-  return define(scene, POND_TEX.lily, LILY_SIZE, LILY_SIZE, (g) => {
+export function ensureLilyTexture(scene: Phaser.Scene, notchDeg: number): string {
+  return define(scene, lilyTextureKey(notchDeg), LILY_SIZE, LILY_SIZE, (g) => {
     const c = LILY_SIZE / 2;
     const rx = c - 2;
     // Slightly squashed: a pad lies flat on the water, so it is never a
@@ -291,16 +310,17 @@ export function ensureLilyTexture(scene: Phaser.Scene): string {
 
     const steps = 44;
     const notch = Phaser.Math.DegToRad(30);
+    const notchCenter = Phaser.Math.DegToRad(notchDeg);
     const points: number[][] = [[c, c]];
     for (let i = 0; i <= steps; i += 1) {
-      const a = notch / 2 + (i / steps) * (Math.PI * 2 - notch);
+      const a = notchCenter + notch / 2 + (i / steps) * (Math.PI * 2 - notch);
       points.push([c + Math.cos(a) * rx, c + Math.sin(a) * ry]);
     }
     fillPolygon(g, points, body);
 
-    // Moonlight along the upper edge. Walked as line segments rather than
-    // stroked as an arc, because the pad is an ellipse and Graphics has no
-    // partial-ellipse stroke.
+    // Moonlight along the upper edge, fixed regardless of notch orientation.
+    // Walked as line segments rather than stroked as an arc, because the pad
+    // is an ellipse and Graphics has no partial-ellipse stroke.
     g.lineStyle(1.6, PALETTE.moon, 0.24);
     g.beginPath();
     for (let i = 0; i <= 24; i += 1) {
@@ -315,12 +335,15 @@ export function ensureLilyTexture(scene: Phaser.Scene): string {
     }
     g.strokePath();
 
-    // Veins, radiating away from the notch.
+    // Veins. Started short of the centre — with the notch also meeting there,
+    // five or six lines from one exact point read as a pie chart rather than
+    // as leaf structure — and held to three so they stay a texture, not the
+    // dominant shape. Their angles are fixed, independent of the notch.
     g.lineStyle(1, shade(PALETTE.grass, 0.25), 0.16);
-    for (const deg of [70, 130, 190, 250, 310]) {
+    for (const deg of [110, 190, 265]) {
       const a = Phaser.Math.DegToRad(deg);
       g.beginPath();
-      g.moveTo(c, c);
+      g.moveTo(c + Math.cos(a) * rx * 0.25, c + Math.sin(a) * ry * 0.25);
       g.lineTo(c + Math.cos(a) * rx * 0.86, c + Math.sin(a) * ry * 0.86);
       g.strokePath();
     }
@@ -358,7 +381,9 @@ export function ensureReedTexture(scene: Phaser.Scene): string {
         [tipX - 1.2, tipY],
       ], blade);
       if (stalk.head) {
-        g.fillStyle(blade, 1);
+        // A different value from the stalk it sits on, or the cattail head
+        // merges into the blade beneath it and disappears.
+        g.fillStyle(shade(PALETTE.grassDark, 0.18), 1);
         g.fillEllipse(tipX, tipY + 16, 11, 34);
       }
       g.lineStyle(1.2, PALETTE.moon, 0.13);
@@ -373,17 +398,21 @@ export function ensureReedTexture(scene: Phaser.Scene): string {
 export const RING_SIZE = 64;
 
 /**
- * An open ring, flattened into perspective. The splash used to be a filled
- * glow scaled up, which the eye reads as a flash rather than as water: the
- * hole in the middle is what makes it a ripple.
+ * An open ring. The splash used to be a filled glow scaled up, which the eye
+ * reads as a flash rather than as water: the hole in the middle is what makes
+ * it a ripple.
+ *
+ * Baked round, on purpose — flattening into perspective happens exactly once,
+ * at each use site (FishScene.expandRing, pondBackdrop.surfaceRipple), so a
+ * non-uniform scale is never applied on top of an already-flattened bake.
  */
 export function ensureRingTexture(scene: Phaser.Scene): string {
   return define(scene, POND_TEX.ring, RING_SIZE, RING_SIZE, (g) => {
     const c = RING_SIZE / 2;
     g.lineStyle(5, 0xffffff, 0.85);
-    g.strokeEllipse(c, c, RING_SIZE - 10, (RING_SIZE - 10) * 0.56);
+    g.strokeEllipse(c, c, RING_SIZE - 10, RING_SIZE - 10);
     g.lineStyle(2, 0xffffff, 0.3);
-    g.strokeEllipse(c, c, RING_SIZE - 22, (RING_SIZE - 22) * 0.56);
+    g.strokeEllipse(c, c, RING_SIZE - 22, RING_SIZE - 22);
   });
 }
 
