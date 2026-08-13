@@ -48,6 +48,9 @@ export const PALETTE = {
   pondRim: 0x08283c,
   /** The rare fish, and the sparkle that announces it. */
   gold: 0xffd166,
+  /** Moonlight. One light source, overhead — every rim light in the pond
+   * agrees with it, which is most of what stops the scene looking flat. */
+  moon: 0xdfe9ff,
 } as const;
 
 // A system stack keeps text crisp on every device without a webfont round
