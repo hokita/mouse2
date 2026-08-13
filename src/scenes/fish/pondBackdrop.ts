@@ -58,18 +58,22 @@ export function createPondBackdrop(scene: Phaser.Scene): void {
 
   // Motes drifting across the surface, replacing the bubbles that used to
   // rise through it. Slow and sideways: this is pollen on water, not air in
-  // a tank. speedX and lifespan are matched so that even the slowest mote at
-  // its shortest life still clears the full canvas width (18_000ms * 14px/s
-  // = 252px, well past WIDTH) rather than fading out a third of the way
-  // across.
+  // a tank.
+  //
+  // Speed and lifetime are sampled independently, so the pairing that has to
+  // clear the canvas is the *slowest* speed with the *shortest* life, not the
+  // averages: 26px/s * 18s = 468px against the 442px a mote needs to cross
+  // from x = -12 to WIDTH. Check that corner when retuning either range —
+  // the previous values only worked at their maximums and let slow motes
+  // die in the middle of the pond.
   const drift = scene.add.particles(0, 0, TEX.spark, {
     x: -12,
     y: { min: 0, max: HEIGHT },
-    speedX: { min: 14, max: 30 },
+    speedX: { min: 26, max: 44 },
     speedY: { min: -3, max: 3 },
     scale: { min: 0.1, max: 0.24 },
     alpha: { start: 0.22, end: 0 },
-    lifespan: { min: 18_000, max: 32_000 },
+    lifespan: { min: 18_000, max: 26_000 },
     frequency: 900,
     tint: [PALETTE.moon, PALETTE.cyan],
     blendMode: 'ADD',
