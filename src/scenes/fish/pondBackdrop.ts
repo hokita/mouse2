@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT } from '../../gameConfig';
-import { PALETTE } from '../../ui/theme';
+import { PALETTE, shade } from '../../ui/theme';
 import { TEX, ensureGradient } from '../../ui/textures';
 import { DEPTH } from '../../ui/widgets';
 
@@ -14,26 +14,29 @@ import { DEPTH } from '../../ui/widgets';
 
 /** Builds the backdrop. Call once, from the scene's create(). */
 export function createPondBackdrop(scene: Phaser.Scene): void {
-  // Lit at the top, darkening downward — the moon is up there. The old
-  // gradient ran the other way and lit the water from underneath.
+  // Lit at the top, darkening downward — the moon is up there. Both ends are
+  // pulled well down: the holes are the targets, so they have to be the
+  // brightest things on screen, and water this dark is what buys them that.
   scene.add
-    .image(WIDTH / 2, HEIGHT / 2, ensureGradient(scene, PALETTE.seaDeep, PALETTE.seaTop))
+    .image(WIDTH / 2, HEIGHT / 2, ensureGradient(scene, shade(PALETTE.seaDeep, -0.42), shade(PALETTE.seaTop, -0.25)))
     .setDisplaySize(WIDTH, HEIGHT)
     .setDepth(DEPTH.backdrop);
 
   // The moon's sheen on the surface, and the path it throws down the water.
+  // Kept narrow on purpose: spread wide, an additive glow stops reading as a
+  // reflection and starts reading as fog.
   scene.add
-    .image(WIDTH / 2, HEIGHT * 0.06, TEX.glow)
-    .setDisplaySize(WIDTH * 1.9, HEIGHT * 0.42)
+    .image(WIDTH / 2, HEIGHT * 0.03, TEX.glow)
+    .setDisplaySize(WIDTH * 1.15, HEIGHT * 0.17)
     .setTint(PALETTE.moon)
-    .setAlpha(0.14)
+    .setAlpha(0.1)
     .setBlendMode(Phaser.BlendModes.ADD)
     .setDepth(DEPTH.backdrop);
   scene.add
-    .image(WIDTH * 0.38, HEIGHT * 0.42, TEX.glow)
-    .setDisplaySize(WIDTH * 0.42, HEIGHT * 0.8)
+    .image(WIDTH * 0.4, HEIGHT * 0.34, TEX.glow)
+    .setDisplaySize(WIDTH * 0.24, HEIGHT * 0.62)
     .setTint(PALETTE.moon)
-    .setAlpha(0.05)
+    .setAlpha(0.035)
     .setBlendMode(Phaser.BlendModes.ADD)
     .setDepth(DEPTH.backdrop);
 
