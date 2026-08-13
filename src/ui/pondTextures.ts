@@ -12,6 +12,8 @@ export const POND_TEX = {
   lip: 'pond-lip',
   trash: 'pond-trash',
   shimmer: 'pond-shimmer',
+  lily: 'pond-lily',
+  reeds: 'pond-reeds',
 } as const;
 
 export function fishTexture(color: number, rare: boolean): string {
@@ -196,6 +198,92 @@ export function ensureShimmerTexture(scene: Phaser.Scene): string {
     g.strokeEllipse(cx, cy, POND_WIDTH * 0.46, POND_HEIGHT * 0.34);
     g.lineStyle(1.5, PALETTE.moon, 0.34);
     g.strokeEllipse(cx, cy, POND_WIDTH * 0.24, POND_HEIGHT * 0.18);
+  });
+}
+
+export const LILY_SIZE = 64;
+
+/**
+ * A lily pad: a disc with a wedge cut out of it, rim-lit along its upper
+ * edge. The notch is what makes it a lily pad rather than a green dot, and it
+ * is drawn as a polygon that returns to the centre rather than cut out of a
+ * circle — Graphics has no way to subtract a shape, and filling the notch with
+ * a background colour would only work over one exact backdrop.
+ */
+export function ensureLilyTexture(scene: Phaser.Scene): string {
+  return define(scene, POND_TEX.lily, LILY_SIZE, LILY_SIZE, (g) => {
+    const c = LILY_SIZE / 2;
+    const r = c - 2;
+    const body = shade(PALETTE.grass, -0.18);
+
+    const steps = 44;
+    const notch = Phaser.Math.DegToRad(42);
+    const points: number[][] = [[c, c]];
+    for (let i = 0; i <= steps; i += 1) {
+      const a = notch / 2 + (i / steps) * (Math.PI * 2 - notch);
+      points.push([c + Math.cos(a) * r, c + Math.sin(a) * r]);
+    }
+    fillPolygon(g, points, body);
+
+    // Lit along the top, shaded along the bottom — the same overhead moon.
+    g.lineStyle(2, PALETTE.moon, 0.16);
+    g.beginPath();
+    g.arc(c, c, r - 1, Phaser.Math.DegToRad(198), Phaser.Math.DegToRad(342));
+    g.strokePath();
+    g.fillStyle(0x000000, 0.14);
+    g.fillEllipse(c, c + r * 0.52, r * 1.5, r * 0.7);
+
+    // Veins, radiating away from the notch.
+    g.lineStyle(1, shade(PALETTE.grass, 0.2), 0.22);
+    for (const deg of [70, 130, 190, 250, 310]) {
+      const a = Phaser.Math.DegToRad(deg);
+      g.beginPath();
+      g.moveTo(c, c);
+      g.lineTo(c + Math.cos(a) * r * 0.88, c + Math.sin(a) * r * 0.88);
+      g.strokePath();
+    }
+  });
+}
+
+export const REED_WIDTH = 96;
+export const REED_HEIGHT = 150;
+
+/**
+ * A clump of reeds, rooted at the bottom of its texture. Near-black on
+ * purpose: these are silhouettes at the edge of the light, and anything
+ * brighter starts competing with the holes for attention.
+ */
+export function ensureReedTexture(scene: Phaser.Scene): string {
+  return define(scene, POND_TEX.reeds, REED_WIDTH, REED_HEIGHT, (g) => {
+    const blade = shade(PALETTE.grassDark, -0.5);
+    const stalks: { x: number; lean: number; length: number; width: number; head: boolean }[] = [
+      { x: 16, lean: -13, length: 96, width: 7, head: false },
+      { x: 33, lean: 6, length: 138, width: 6, head: true },
+      { x: 48, lean: -5, length: 112, width: 8, head: false },
+      { x: 64, lean: 15, length: 132, width: 6, head: true },
+      { x: 80, lean: 9, length: 84, width: 7, head: false },
+    ];
+
+    for (const stalk of stalks) {
+      const tipX = stalk.x + stalk.lean;
+      const tipY = REED_HEIGHT - stalk.length;
+      fillPolygon(g, [
+        [stalk.x - stalk.width / 2, REED_HEIGHT],
+        [stalk.x + stalk.width / 2, REED_HEIGHT],
+        [tipX, tipY],
+      ], blade);
+      // A cattail head on the taller two.
+      if (stalk.head) {
+        g.fillStyle(blade, 1);
+        g.fillEllipse(tipX, tipY + 12, 8, 26);
+      }
+      // A thread of moonlight down the lit edge of each blade.
+      g.lineStyle(1, PALETTE.moon, 0.1);
+      g.beginPath();
+      g.moveTo(stalk.x - stalk.width * 0.3, REED_HEIGHT);
+      g.lineTo(tipX - 1, tipY + 4);
+      g.strokePath();
+    }
   });
 }
 
