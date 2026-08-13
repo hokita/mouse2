@@ -227,10 +227,20 @@ export class FishScene extends Phaser.Scene {
       // twelve separate patches of moving water.
       const shimmer = this.add
         .image(x, y - 3, POND_TEX.shimmer)
+        // The tween below drives scaleX/scaleY with absolute values (0.72 to
+        // 1), which only lands right because ensureShimmerTexture bakes this
+        // texture at exactly POND_WIDTH x POND_HEIGHT — making this call a
+        // no-op that leaves scale at 1. Change that texture's dimensions and
+        // this silently breaks the idle animation.
         .setDisplaySize(POND_WIDTH, POND_HEIGHT)
         .setAlpha(0)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setDepth(DEPTH.world - 1);
+        // Its own band between back (world - 1) and the popup sprites/lip
+        // (world and world + 1): sharing a depth with back, which is drawn
+        // NORMAL, would force the renderer to flip blend mode on every
+        // shimmer/back pair and flush the batch each time. Kept together
+        // here, all twelve additive shimmers batch in one draw call.
+        .setDepth(DEPTH.world - 0.5);
       this.tweens.add({
         targets: shimmer,
         alpha: { from: 0.05, to: 0.3 },
@@ -564,6 +574,12 @@ export class FishScene extends Phaser.Scene {
     this.expandRing(x, y, PALETTE.cyan, { from: 20, to: 88, alpha: 0.4, duration: 360 });
   }
 
+  // spec.from/spec.to are display widths, not the ring's rendered pixel
+  // height: ensureRingTexture flattens the ellipse into a square canvas, so
+  // the visible ring ends up roughly a third of that nominal number in
+  // height. Anyone matching these values against POND_WIDTH or a hole rim
+  // will be off by about 3x — the numbers are approved as-is, so don't
+  // "fix" them without also checking the on-screen result.
   private expandRing(
     x: number,
     y: number,

@@ -395,10 +395,12 @@ export function ensurePondTextures(scene: Phaser.Scene): void {
   const rimColor = shade(PALETTE.seaDeep, 0.16);
 
   define(scene, POND_TEX.back, POND_WIDTH, POND_HEIGHT, (g) => {
-    // Contact shadow, stacked outward from the rim so it falls off smoothly.
-    for (let i = 6; i > 0; i -= 1) {
-      g.fillStyle(0x000000, 0.05);
-      g.fillEllipse(cx, cy + 2, rimW + i * 2.4, rimH + i * 1.8);
+    // Four rings, sized to stay inside the 128x64 canvas: grown any further
+    // the outer ones are clipped by the texture edge and the falloff ends in
+    // a hard cut instead of fading out.
+    for (let i = 4; i > 0; i -= 1) {
+      g.fillStyle(0x000000, 0.06);
+      g.fillEllipse(cx, cy + 2, rimW + i * 1.4, rimH + i * 0.5);
     }
 
     // The wet rim: the pond surface immediately around the opening, lifted a
