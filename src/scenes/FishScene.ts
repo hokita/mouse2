@@ -24,6 +24,7 @@ import {
   TRASH_WIDTH,
   ensureFishTexture,
   ensurePondTextures,
+  ensureRingTexture,
   ensureShimmerTexture,
   ensureTrashTexture,
 } from '../ui/pondTextures';
@@ -149,6 +150,7 @@ export class FishScene extends Phaser.Scene {
     ensurePondTextures(this);
     ensureShimmerTexture(this);
     ensureTrashTexture(this);
+    ensureRingTexture(this);
     for (const color of FISH_COLORS) {
       ensureFishTexture(this, color);
     }
@@ -536,39 +538,51 @@ export class FishScene extends Phaser.Scene {
 
   /** Expanding ring at the waterline — every arrival and departure gets one. */
   private splash(x: number, y: number, color: number): void {
-    const ring = this.add
-      .image(x, y, TEX.glow)
-      .setDisplaySize(46, 22)
-      .setTint(color)
-      .setAlpha(0.6)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(DEPTH.effects);
-    this.tweens.add({
-      targets: ring,
-      displayWidth: 150,
-      displayHeight: 62,
-      alpha: 0,
-      duration: 420,
-      ease: 'Cubic.easeOut',
-      onComplete: () => ring.destroy(),
+    this.expandRing(x, y, color, { from: 40, to: 156, alpha: 0.75, duration: 460 });
+
+    // A handful of droplets thrown up out of the ring. Emitted upward and
+    // pulled back down, because a splash that only spreads sideways reads as
+    // a shockwave.
+    const drops = this.add.particles(x, y - 4, TEX.spark, {
+      speed: { min: 40, max: 120 },
+      angle: { min: 236, max: 304 },
+      gravityY: 420,
+      lifespan: { min: 260, max: 460 },
+      scale: { start: 0.34, end: 0 },
+      alpha: { start: 0.85, end: 0 },
+      tint: [color, PALETTE.moon],
+      blendMode: 'ADD',
+      emitting: false,
     });
+    drops.setDepth(DEPTH.effects);
+    drops.explode(5);
+    this.time.delayedCall(700, () => drops.destroy());
   }
 
   /** Feedback for a tap that hit nothing, so the water never feels dead. */
   private ripple(x: number, y: number): void {
+    this.expandRing(x, y, PALETTE.cyan, { from: 20, to: 88, alpha: 0.4, duration: 360 });
+  }
+
+  private expandRing(
+    x: number,
+    y: number,
+    color: number,
+    spec: { from: number; to: number; alpha: number; duration: number }
+  ): void {
     const ring = this.add
-      .image(x, y, TEX.glow)
-      .setDisplaySize(24, 16)
-      .setTint(PALETTE.cyan)
-      .setAlpha(0.35)
+      .image(x, y, POND_TEX.ring)
+      .setDisplaySize(spec.from, spec.from * 0.56)
+      .setTint(color)
+      .setAlpha(spec.alpha)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(DEPTH.effects);
     this.tweens.add({
       targets: ring,
-      displayWidth: 80,
-      displayHeight: 48,
+      displayWidth: spec.to,
+      displayHeight: spec.to * 0.56,
       alpha: 0,
-      duration: 320,
+      duration: spec.duration,
       ease: 'Cubic.easeOut',
       onComplete: () => ring.destroy(),
     });

@@ -14,6 +14,7 @@ export const POND_TEX = {
   shimmer: 'pond-shimmer',
   lily: 'pond-lily',
   reeds: 'pond-reeds',
+  ring: 'pond-ring',
 } as const;
 
 export function fishTexture(color: number, rare: boolean): string {
@@ -301,6 +302,23 @@ export function ensureReedTexture(scene: Phaser.Scene): string {
       g.lineTo(tipX - 1, tipY + 5);
       g.strokePath();
     }
+  });
+}
+
+export const RING_SIZE = 64;
+
+/**
+ * An open ring, flattened into perspective. The splash used to be a filled
+ * glow scaled up, which the eye reads as a flash rather than as water: the
+ * hole in the middle is what makes it a ripple.
+ */
+export function ensureRingTexture(scene: Phaser.Scene): string {
+  return define(scene, POND_TEX.ring, RING_SIZE, RING_SIZE, (g) => {
+    const c = RING_SIZE / 2;
+    g.lineStyle(5, 0xffffff, 0.85);
+    g.strokeEllipse(c, c, RING_SIZE - 10, (RING_SIZE - 10) * 0.56);
+    g.lineStyle(2, 0xffffff, 0.3);
+    g.strokeEllipse(c, c, RING_SIZE - 22, (RING_SIZE - 22) * 0.56);
   });
 }
 
