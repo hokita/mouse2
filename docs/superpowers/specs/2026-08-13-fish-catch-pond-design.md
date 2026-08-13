@@ -51,14 +51,30 @@ fraction of the cost.
 
 ## The hole
 
-The near lip and the far wall swap roles, which is most of the fix.
+> **Corrected after implementation.** The original version of this section
+> proposed swapping the roles of the near lip and the far wall — lighting the
+> far wall and darkening the near lip. That was built, and it was wrong: it
+> produced an interior that peaked in brightness just under the top rim, at
+> roughly luminance 119 against a backdrop of 26, which is the shading of a lit
+> dome. The fix below is what actually ships. The original wording is in git
+> history at `634ab3c`.
 
-| Part | Now | New |
+An opening is read from its **edge catching light** and its **inside falling
+dark** — not from its inside being bright. The old hole was inverted, but the
+first correction inverted it into a different wrong answer.
+
+| Part | Before the branch | Shipped |
 |---|---|---|
-| Far wall (top) | dark | Lit — the moon catches the far rim |
-| Deep centre | — | The darkest point in the hole |
-| Near lip (front) | Light, with a hard rect highlight | Dark wet water, with a thin feathered specular arc along the waterline only |
-| Outer edge | Nothing | A soft outer shadow and a wet rim ring, so the hole sits *in* a surface |
+| Rim ring | Nothing | The brightest element in the texture: the lit wet edge of the pool |
+| Interior, under the top rim | Dark | **Darkest** — the rim cuts the moon off here |
+| Interior, toward the far wall | Light | Eases slightly lighter, but stays below the water around it |
+| Near lip (front) | Light, with a hard rect highlight | Starts on the same lit edge and darkens into the backdrop |
+| Outer edge | Nothing | A soft contact shadow with room to fall off, on a canvas padded past the hole |
+
+The rim's own shadow is thrown down the inside of the far wall. It is walked as
+segments along the ellipse rather than stroked with `g.arc`, which draws a
+circle — on a 112 × 50 opening an arc cuts across the middle instead of hugging
+the edge, and that is part of what made the first attempt read as a dome.
 
 The near lip keeps being drawn in front of whatever surfaces, exactly as
 today — the occlusion that sells "coming up out of the water" is unchanged.
