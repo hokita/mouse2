@@ -255,28 +255,28 @@ export function ensurePondTextures(scene: Phaser.Scene): void {
   });
 
   define(scene, POND_TEX.lip, POND_WIDTH, POND_HEIGHT, (g) => {
-    // The near rim, drawn in front of whatever has surfaced. It is the same
-    // ellipse as the wet rim behind, clipped to its lower half, so the two
-    // meet edge to edge and the hole has one continuous outline.
+    // The near rim: the water surface in front of the opening. It runs from a
+    // lit waterline down to the backdrop's own colour, so the hole melts into
+    // the pond at its bottom edge instead of ending on a flat plate.
+    const near = Phaser.Display.Color.IntegerToColor(shade(PALETTE.pondRim, 0.12));
+    const far = Phaser.Display.Color.IntegerToColor(PALETTE.seaTop);
     for (let y = Math.floor(cy); y < POND_HEIGHT; y += 1) {
       const dy = (y + 0.5 - cy) / (rimH / 2);
       if (Math.abs(dy) >= 1) {
         continue;
       }
       const half = (rimW / 2) * Math.sqrt(1 - dy * dy);
-      g.fillStyle(rimColor, 1);
+      const c = Phaser.Display.Color.Interpolate.ColorWithColor(near, far, 100, Math.round(dy * 100));
+      g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b), 1);
       g.fillRect(cx - half, y, half * 2, 1);
     }
 
-    // The waterline. Drawn as a run of short bars that fade out toward the
-    // ends and bow very slightly downward: a straight full-width rect across
-    // a round hole reads as a seam, which is what it used to do.
-    const bars = 60;
-    for (let i = 0; i < bars; i += 1) {
-      const t = i / (bars - 1);
-      const fade = Math.sin(Math.PI * t);
-      g.fillStyle(PALETTE.moon, 0.3 * Math.pow(fade, 1.5));
-      g.fillRect(8 + t * (POND_WIDTH - 16), cy - 1.5 + (1 - fade) * 1.4, 2.6, 2.2);
-    }
+    // The waterline, drawn as a thin lens rather than a row of bars: an
+    // ellipse this flat tapers off at its own ends, where a run of rects
+    // leaves a dotted seam and a stair-stepped bow.
+    g.fillStyle(PALETTE.moon, 0.1);
+    g.fillEllipse(cx, cy, rimW * 0.96, 7);
+    g.fillStyle(PALETTE.moon, 0.3);
+    g.fillEllipse(cx, cy, rimW * 0.88, 2.6);
   });
 }
