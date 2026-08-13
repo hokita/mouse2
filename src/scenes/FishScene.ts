@@ -13,20 +13,19 @@ import { createSpawner, retuneSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE, displayStyle, labelStyle } from '../ui/theme';
+import { TEX, ensureFxTextures, ensureGradient } from '../ui/textures';
 import {
   FISH_HEIGHT,
   FISH_WIDTH,
   POND_HEIGHT,
+  POND_TEX,
   POND_WIDTH,
-  TEX,
   TRASH_HEIGHT,
   TRASH_WIDTH,
   ensureFishTexture,
-  ensureFxTextures,
-  ensureGradient,
   ensurePondTextures,
   ensureTrashTexture,
-} from '../ui/textures';
+} from '../ui/pondTextures';
 import {
   DEPTH,
   createBackButton,
@@ -251,12 +250,12 @@ export class FishScene extends Phaser.Scene {
     for (let hole = 0; hole < HOLE_COUNT; hole += 1) {
       const { x, y } = this.holeCenter(hole);
       this.add
-        .image(x, y, TEX.pondBack)
+        .image(x, y, POND_TEX.back)
         .setDisplaySize(POND_WIDTH, POND_HEIGHT)
         .setDepth(DEPTH.world - 1);
       // In front of anything that surfaces here — see ensurePondTextures.
       this.add
-        .image(x, y, TEX.pondLip)
+        .image(x, y, POND_TEX.lip)
         .setDisplaySize(POND_WIDTH, POND_HEIGHT)
         .setDepth(DEPTH.world + 1);
     }
@@ -420,7 +419,7 @@ export class FishScene extends Phaser.Scene {
 
   private textureFor(kind: PopupKind): string {
     if (kind === 'trash') {
-      return TEX.trash;
+      return POND_TEX.trash;
     }
     if (kind === 'rare') {
       return ensureFishTexture(this, PALETTE.gold, { rare: true });

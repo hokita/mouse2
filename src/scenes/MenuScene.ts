@@ -7,15 +7,13 @@ import { PALETTE, RADIUS, bodyStyle, displayStyle, labelStyle } from '../ui/them
 import {
   CAR_HEIGHT,
   CAR_WIDTH,
-  FISH_HEIGHT,
-  FISH_WIDTH,
   SHIP_SIZE,
   TEX,
   ensureCarTexture,
-  ensureFishTexture,
   ensureFxTextures,
   ensureShipTexture,
 } from '../ui/textures';
+import { FISH_HEIGHT, FISH_WIDTH, ensureFishTexture } from '../ui/pondTextures';
 import { DEPTH, containerHitArea, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
