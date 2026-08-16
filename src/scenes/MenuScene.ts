@@ -14,7 +14,7 @@ import {
   ensureShipTexture,
 } from '../ui/textures';
 import { FISH_HEIGHT, FISH_WIDTH, ensureFishTexture } from '../ui/pondTextures';
-import { HOOK_HEIGHT, HOOK_WIDTH, ensureHookTexture } from '../ui/reelTextures';
+import { BOBBER_HEIGHT, BOBBER_WIDTH, ensureBobberTexture } from '../ui/reelTextures';
 import { DEPTH, containerHitArea, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
@@ -223,13 +223,13 @@ export class MenuScene extends Phaser.Scene {
         .image(0, 0, ensureFishTexture(this, FISH_COLORS[1], { submerged: false }))
         .setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
     }
-    if (icon === 'hook') {
-      // The hook is a spindly glyph, so it gets more enlargement than the
-      // other badges — at fish scale it would read as a bent wire.
-      const scale = 1.4;
+    if (icon === 'bobber') {
+      // The bobber is a small glyph, so it gets more enlargement than the
+      // other badges — at fish scale it would read as a distant buoy.
+      const scale = 1.5;
       return this.add
-        .image(0, 0, ensureHookTexture(this))
-        .setDisplaySize(HOOK_WIDTH * scale, HOOK_HEIGHT * scale);
+        .image(0, 0, ensureBobberTexture(this))
+        .setDisplaySize(BOBBER_WIDTH * scale, BOBBER_HEIGHT * scale);
     }
     const scale = 0.72;
     return this.add
