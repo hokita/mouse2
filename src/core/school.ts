@@ -15,7 +15,8 @@ export interface SchoolBounds {
 export interface SchoolConfig {
   /** Where the school may swim. */
   bounds: SchoolBounds;
-  /** Target population; thinned by hooks, refilled on a timer. */
+  /** Target population; thinned by hooks, refilled on a timer. Must be at
+   * least 1 — an empty school can never produce the guaranteed bite. */
   fishCount: number;
   respawnDelayMs: number;
   /** Spawn odds per rarity. */

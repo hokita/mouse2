@@ -20,6 +20,14 @@ const config: Phaser.Types.Core.GameConfig = {
     antialias: true,
     roundPixels: false,
   },
+  // Phaser's default is a single touch pointer. On a phone, a hold is often
+  // sustained by rolling to a second finger before lifting the first; with
+  // one pointer that second finger is invisible and the hold "drops" while a
+  // finger is still on the glass. Big Bite's reel reads held pointers, so
+  // track enough of them for a hand.
+  input: {
+    activePointers: 3,
+  },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

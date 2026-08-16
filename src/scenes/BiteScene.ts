@@ -71,11 +71,12 @@ const MAX_DELTA_MS = 100;
 /**
  * The school the player is fishing from. The fish are visible the whole
  * time — the game is choosing one and dropping the hook in its path. The
- * bounds keep them in the deep water, below the hint line and clear of the
- * screen edges.
+ * bounds keep every fish in castable water: the left edge stays reachable
+ * from CAST_MIN_X's hook, and the floor stays above the fight panel so a
+ * deep hookup is never hidden behind its own readout.
  */
 const SCHOOL: SchoolConfig = {
-  bounds: { minX: 36, maxX: WIDTH - 36, minY: 540, maxY: 810 },
+  bounds: { minX: 110, maxX: WIDTH - 36, minY: 540, maxY: 740 },
   fishCount: 5,
   respawnDelayMs: 1800,
   weights: { common: 46, fine: 28, big: 18, golden: 8 },
@@ -83,9 +84,17 @@ const SCHOOL: SchoolConfig = {
   speedJitter: 0.25,
   biteRadius: 64,
   catchRadius: 12,
-  lungeSpeed: 175,
-  attractAfterMs: 5000,
+  lungeSpeed: 200,
+  attractAfterMs: 2600,
 };
+
+/**
+ * Spawn odds drift toward the rare end as the run goes on — the same arc
+ * the old blind version had — so the last casts are the ones a golden is
+ * most likely to swim in for.
+ */
+const START_WEIGHTS: Record<CatchRarity, number> = { common: 50, fine: 28, big: 16, golden: 6 };
+const END_WEIGHTS: Record<CatchRarity, number> = { common: 30, fine: 26, big: 26, golden: 18 };
 
 /** How each rarity reads underwater: colour, glow, and above all size. */
 const LOOK: Record<CatchRarity, { color: number; rare: boolean; scale: number }> = {
@@ -96,10 +105,11 @@ const LOOK: Record<CatchRarity, { color: number; rare: boolean; scale: number }>
 };
 
 // The fights. Bigger fish reel in slower, load the line faster and thrash
-// more of the time. Tuned so a common fish held straight through usually
-// survives its one thrash — a small child's first catches must land — while
-// the golden fish genuinely demands easing off, and easing off is cheap
-// (tension falls fast) so the lesson is learnable without losing the fish.
+// more of the time. Tuned as a gradient, not a cliff: held straight
+// through, a common always lands, a fine usually does, a big rarely, and
+// the golden never — each tier teaches a little more of the ease-off
+// lesson, and easing off is cheap (tension falls fast) so the lesson is
+// learnable without losing many fish.
 const FIGHTS: Record<CatchRarity, TensionConfig> = {
   common: {
     reelPerSec: 0.4,
@@ -115,7 +125,7 @@ const FIGHTS: Record<CatchRarity, TensionConfig> = {
   fine: {
     reelPerSec: 0.34,
     slipPerSec: 0.12,
-    risePerSec: 0.3,
+    risePerSec: 0.22,
     thrashRiseMult: 2.6,
     fallPerSec: 0.8,
     thrashMinGapMs: 1200,
@@ -126,7 +136,7 @@ const FIGHTS: Record<CatchRarity, TensionConfig> = {
   big: {
     reelPerSec: 0.29,
     slipPerSec: 0.12,
-    risePerSec: 0.36,
+    risePerSec: 0.3,
     thrashRiseMult: 2.6,
     fallPerSec: 0.8,
     thrashMinGapMs: 1000,
@@ -163,8 +173,24 @@ export class BiteScene extends Phaser.Scene {
   private scoreState!: ScoreState;
   /** True from the hook touching the water to the cast resolving. */
   private hookInWater = false;
+  /**
+   * True only once the hook has settled at the tapped depth. A hook that
+   * tempted fish while still falling was offered to every fish in its sink
+   * column, and whichever swam above the target stole the bite — aim only
+   * means anything if the bait starts existing where it was aimed.
+   */
+  private hookArmed = false;
   /** The depth the fish was hooked at; the fight lifts it from here. */
   private biteY = 0;
+  /**
+   * Every pointer currently pressed on the water (chip taps stop their
+   * events before the scene sees them). The fight reads "holding" from
+   * this set, so a hold survives rolling from one finger to another.
+   */
+  private heldPointers = new Set<number>();
+  /** Casting is ignored until this clock time — a restart double-tap must
+   * not throw the new run's first cast. */
+  private castBlockedUntil = 0;
 
   private scorePill!: StatPill;
   private castsPill!: StatPill;
@@ -272,7 +298,12 @@ export class BiteScene extends Phaser.Scene {
       .setDepth(DEPTH.hud);
     this.hint.setLetterSpacing(3);
 
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handleTap(pointer));
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.heldPointers.add(pointer.id);
+      this.handleTap(pointer);
+    });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => this.heldPointers.delete(pointer.id));
+    this.input.on('pointerupoutside', (pointer: Phaser.Input.Pointer) => this.heldPointers.delete(pointer.id));
 
     createBackButton(this, {
       accent: ACCENT,
@@ -459,7 +490,10 @@ export class BiteScene extends Phaser.Scene {
     this.castsUsed = 0;
     this.tensionState = null;
     this.hookInWater = false;
-    this.schoolState = createSchool(SCHOOL);
+    this.hookArmed = false;
+    this.heldPointers.clear();
+    this.castBlockedUntil = this.time.now + 400;
+    this.schoolState = createSchool(this.schoolConfig());
     for (const sprite of this.fishSprites.values()) {
       sprite.destroy();
     }
@@ -510,14 +544,24 @@ export class BiteScene extends Phaser.Scene {
     }
   }
 
+  /** The spawn odds drift across the run; everything else stands still. */
+  private schoolConfig(): SchoolConfig {
+    const t = Math.min(1, this.castsUsed / (CAST_COUNT - 1));
+    const weights = {} as Record<CatchRarity, number>;
+    for (const rarity of Object.keys(START_WEIGHTS) as CatchRarity[]) {
+      weights[rarity] = START_WEIGHTS[rarity] + (END_WEIGHTS[rarity] - START_WEIGHTS[rarity]) * t;
+    }
+    return { ...SCHOOL, weights };
+  }
+
   /**
    * The school swims through every phase — a still tank would give the game
-   * away as a screenshot. The hook only tempts it while a cast is actually
-   * in the water.
+   * away as a screenshot. The hook only tempts it once it has settled where
+   * the player aimed it.
    */
   private tickSchool(dt: number): void {
-    const hook = this.hookInWater ? { x: this.hook.x, y: this.hook.y } : null;
-    const result = tickSchool(this.schoolState, dt, hook, SCHOOL);
+    const hook = this.hookArmed ? { x: this.hook.x, y: this.hook.y } : null;
+    const result = tickSchool(this.schoolState, dt, hook, this.schoolConfig());
     this.schoolState = result.state;
     this.syncSchoolSprites();
     if (result.bitten !== null) {
@@ -613,7 +657,7 @@ export class BiteScene extends Phaser.Scene {
   }
 
   private handleTap(pointer: Phaser.Input.Pointer): void {
-    if (this.phase === 'idle' && pointer.y > WATERLINE + 8) {
+    if (this.phase === 'idle' && pointer.y > WATERLINE + 8 && this.time.now >= this.castBlockedUntil) {
       this.cast(pointer.x, pointer.y);
     }
     // During a fight the press IS the input — holding is read straight off
@@ -664,7 +708,8 @@ export class BiteScene extends Phaser.Scene {
   }
 
   /** The bait falls to the depth the player tapped — aim is x and depth
-   * both. Fish may lunge at it on the way down; that is the good kind. */
+   * both. It arms only on arrival: the fish judge the bait where it was
+   * aimed, never somewhere along the way down. */
   private sinkHook(x: number, depth: number): void {
     this.phase = 'waiting';
     this.hook.setPosition(x, WATERLINE + 10);
@@ -678,6 +723,9 @@ export class BiteScene extends Phaser.Scene {
       y: depth,
       duration: ((depth - WATERLINE) / SINK_PER_SEC) * 1000,
       ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.hookArmed = true;
+      },
     });
   }
 
@@ -686,6 +734,7 @@ export class BiteScene extends Phaser.Scene {
     this.rarity = fish.rarity;
     this.biteY = fish.y;
     this.hookInWater = false;
+    this.hookArmed = false;
     this.hook.setVisible(false);
     this.tweens.killTweensOf(this.hook);
 
@@ -725,7 +774,7 @@ export class BiteScene extends Phaser.Scene {
     if (this.tensionState === null) {
       return;
     }
-    const holding = this.input.activePointer.isDown;
+    const holding = this.heldPointers.size > 0;
     const result = tickTension(this.tensionState, dt, holding, FIGHTS[this.rarity]);
     this.tensionState = result.state;
     this.bars.draw(result.state.progress, result.state.tension);
@@ -845,6 +894,7 @@ export class BiteScene extends Phaser.Scene {
     this.phase = 'resolving';
     this.tensionState = null;
     this.hookInWater = false;
+    this.hookArmed = false;
     this.hook.setVisible(false);
     this.tweens.killTweensOf(this.hook);
     this.castsUsed += 1;
