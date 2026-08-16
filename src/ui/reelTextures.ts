@@ -2,14 +2,13 @@ import Phaser from 'phaser';
 import { PALETTE, shade } from './theme';
 import { define, fillPolygon } from './textures';
 
-// Reel Rush's art: a rowboat on the night waterline and everything that hangs
-// or drifts below it. Kept apart from the pond set the same way the pond is
-// kept apart from the road — each world's sprites live with that world.
+// Big Bite's art: a rowboat on the night waterline and the tackle that hangs
+// off it. Kept apart from the pond set the same way the pond is kept apart
+// from the road — each world's sprites live with that world.
 
 export const REEL_TEX = {
   boat: 'reel-boat',
-  hook: 'reel-hook',
-  boot: 'reel-boot',
+  bobber: 'reel-bobber',
   bubble: 'reel-bubble',
   ray: 'reel-ray',
 } as const;
@@ -94,109 +93,45 @@ export function ensureBoatTexture(scene: Phaser.Scene): string {
   });
 }
 
-export const HOOK_WIDTH = 30;
-export const HOOK_HEIGHT = 40;
+export const BOBBER_WIDTH = 26;
+export const BOBBER_HEIGHT = 36;
 
 /**
- * A J-hook: eye, shank, bend, barb. Struck twice — a dark pass a pixel wide
- * of the bright one — because a single light stroke over dark water loses its
- * edge and reads as a scratch on the screen rather than a thing in the scene.
+ * A classic float: red cap over a pale belly, a stem with a line-ring on
+ * top. Read at a glance from its two-tone ball — the one silhouette every
+ * player already knows means "watch this".
  */
-export function ensureHookTexture(scene: Phaser.Scene): string {
-  return define(scene, REEL_TEX.hook, HOOK_WIDTH, HOOK_HEIGHT, (g) => {
-    const steel = 0xd7e0f5;
-    const dark = 0x39415c;
+export function ensureBobberTexture(scene: Phaser.Scene): string {
+  return define(scene, REEL_TEX.bobber, BOBBER_WIDTH, BOBBER_HEIGHT, (g) => {
+    const cx = BOBBER_WIDTH / 2;
+    const ballY = 21;
+    const r = 11;
+    const red = 0xe8484f;
+    const belly = 0xf3ead9;
 
-    const strokeHook = (width: number, color: number, alpha: number): void => {
-      g.lineStyle(width, color, alpha);
-      // Shank.
-      g.beginPath();
-      g.moveTo(19, 9);
-      g.lineTo(19, 25);
-      g.strokePath();
-      // Bend, swept through the bottom of the J.
-      g.beginPath();
-      g.arc(12, 25, 7, 0, Math.PI);
-      g.strokePath();
-      // Point, rising back up the open side.
-      g.beginPath();
-      g.moveTo(5, 25);
-      g.lineTo(5, 16);
-      g.strokePath();
-    };
+    // Stem and the ring the line ties to.
+    g.fillStyle(0x39415c, 1);
+    g.fillRect(cx - 1.5, 3, 3, 8);
+    g.lineStyle(2, 0xd7e0f5, 1);
+    g.strokeCircle(cx, 3.5, 2.5);
 
-    strokeHook(5, dark, 1);
-    strokeHook(3, steel, 1);
-
-    // Eye at the top of the shank, where the line ties on.
-    g.lineStyle(4.5, dark, 1);
-    g.strokeCircle(19, 6, 3.5);
-    g.lineStyle(2.5, steel, 1);
-    g.strokeCircle(19, 6, 3.5);
-
-    // Barb.
-    fillPolygon(g, [
-      [3, 16],
-      [7, 16],
-      [5, 10],
-    ], steel);
-
-    // One glint on the bend — the moon finding the metal.
-    g.fillStyle(0xffffff, 0.9);
-    g.fillCircle(15, 31, 1.6);
-  });
-}
-
-export const BOOT_WIDTH = 48;
-export const BOOT_HEIGHT = 54;
-
-/**
- * The classic haul of a bad cast: an old boot. Grey-violet and slumped where
- * the fish are bright and darting, so the half second the player has to
- * judge it is enough — the same contract Fish Catch's tin can keeps.
- */
-export function ensureBootTexture(scene: Phaser.Scene): string {
-  return define(scene, REEL_TEX.boot, BOOT_WIDTH, BOOT_HEIGHT, (g) => {
-    const leather = 0x5f5872;
-
-    // Shaft, sagging open at the top.
-    fillPolygon(g, [
-      [16, 6],
-      [36, 4],
-      [38, 34],
-      [14, 34],
-    ], leather);
-    g.fillStyle(shade(leather, -0.4), 1);
-    g.fillEllipse(26, 6, 20, 7);
-
-    // Foot, toe to the left, then the sole under it all.
-    g.fillStyle(leather, 1);
-    g.fillEllipse(16, 40, 28, 20);
-    g.fillRect(14, 30, 24, 16);
-    g.fillStyle(0x232941, 1);
-    g.fillRoundedRect(2, 44, 42, 8, 4);
-
-    // Laces — two worn crosses.
-    g.lineStyle(1.5, shade(leather, 0.35), 0.8);
+    // Belly first, cap over its top half, so the seam is one clean arc.
+    g.fillStyle(belly, 1);
+    g.fillCircle(cx, ballY, r);
+    g.fillStyle(red, 1);
     g.beginPath();
-    g.moveTo(18, 14);
-    g.lineTo(32, 20);
-    g.moveTo(32, 14);
-    g.lineTo(18, 20);
-    g.moveTo(18, 24);
-    g.lineTo(32, 30);
-    g.moveTo(32, 24);
-    g.lineTo(18, 30);
-    g.strokePath();
+    g.arc(cx, ballY, r, Math.PI, 0, false);
+    g.fillPath();
+    g.fillRect(cx - r, ballY - 3, r * 2, 3);
 
-    // A scuffed patch on the toe, and the moon down the shaft's near edge.
-    g.fillStyle(0x000000, 0.2);
-    g.fillEllipse(10, 40, 12, 8);
-    g.lineStyle(1.5, PALETTE.moon, 0.25);
-    g.beginPath();
-    g.moveTo(16, 8);
-    g.lineTo(15, 32);
-    g.strokePath();
+    g.lineStyle(1.5, shade(red, -0.45), 0.9);
+    g.strokeCircle(cx, ballY, r);
+
+    // The moon on the cap, and the water's tint under the belly.
+    g.fillStyle(0xffffff, 0.55);
+    g.fillEllipse(cx - 4, ballY - 5.5, 5, 3.5);
+    g.fillStyle(PALETTE.pondRim, 0.25);
+    g.fillEllipse(cx, ballY + r * 0.62, r * 1.4, r * 0.7);
   });
 }
 

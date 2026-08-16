@@ -1,6 +1,6 @@
 import { PALETTE } from './ui/theme';
 
-export type GameIcon = 'ship' | 'car' | 'fish' | 'hook';
+export type GameIcon = 'ship' | 'car' | 'fish' | 'bobber';
 
 export interface GameEntry {
   title: string;
@@ -35,10 +35,10 @@ export const GAMES: GameEntry[] = [
     icon: 'fish',
   },
   {
-    title: 'Reel Rush',
-    tagline: 'Drop the hook, snag the deep ones',
-    sceneKey: 'ReelScene',
+    title: 'Big Bite',
+    tagline: 'Wait for it… strike!',
+    sceneKey: 'BiteScene',
     accent: PALETTE.violet,
-    icon: 'hook',
+    icon: 'bobber',
   },
 ];
