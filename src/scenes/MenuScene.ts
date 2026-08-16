@@ -14,16 +14,19 @@ import {
   ensureShipTexture,
 } from '../ui/textures';
 import { FISH_HEIGHT, FISH_WIDTH, ensureFishTexture } from '../ui/pondTextures';
+import { HOOK_HEIGHT, HOOK_WIDTH, ensureHookTexture } from '../ui/reelTextures';
 import { DEPTH, containerHitArea, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
 import { FISH_COLORS } from './FishScene';
 
-const TITLE_Y = HEIGHT * 0.28;
+// Sized around four cards: a hair tighter than the three-card layout was,
+// so the stack still clears the title above and the footer below.
+const TITLE_Y = HEIGHT * 0.24;
 const CARD_WIDTH = 350;
-const CARD_HEIGHT = 122;
-const CARD_SPACING = 24;
-const FIRST_CARD_Y = HEIGHT * 0.47;
+const CARD_HEIGHT = 108;
+const CARD_SPACING = 18;
+const FIRST_CARD_Y = HEIGHT * 0.42;
 
 export class MenuScene extends Phaser.Scene {
   private stars!: Starfield;
@@ -71,7 +74,7 @@ export class MenuScene extends Phaser.Scene {
     rule.fillRoundedRect(WIDTH / 2 - 26, TITLE_Y + 44, 52, 4, 2);
 
     this.add
-      .text(WIDTH / 2, TITLE_Y + 74, 'Three small games. One thumb.', bodyStyle(15))
+      .text(WIDTH / 2, TITLE_Y + 74, 'Four small games. One thumb.', bodyStyle(15))
       .setOrigin(0.5, 0.5)
       .setDepth(DEPTH.hud);
 
@@ -219,6 +222,14 @@ export class MenuScene extends Phaser.Scene {
       return this.add
         .image(0, 0, ensureFishTexture(this, FISH_COLORS[1], { submerged: false }))
         .setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
+    }
+    if (icon === 'hook') {
+      // The hook is a spindly glyph, so it gets more enlargement than the
+      // other badges — at fish scale it would read as a bent wire.
+      const scale = 1.4;
+      return this.add
+        .image(0, 0, ensureHookTexture(this))
+        .setDisplaySize(HOOK_WIDTH * scale, HOOK_HEIGHT * scale);
     }
     const scale = 0.72;
     return this.add
