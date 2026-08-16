@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
 import { fadeOutMusic, playMusic, playSfx } from '../audio/bus';
-import { createBite, strike, tickBite } from '../core/bite';
-import type { BiteConfig, BiteState } from '../core/bite';
-import { CATCH_POINTS, pickCatch } from '../core/haul';
+import { CATCH_POINTS } from '../core/haul';
 import type { CatchRarity } from '../core/haul';
+import { createSchool, tickSchool } from '../core/school';
+import type { Fish, SchoolConfig, SchoolState } from '../core/school';
 import { addPoints, createScore, getScoreValue } from '../core/score';
 import type { ScoreState } from '../core/score';
 import { createTension, tickTension } from '../core/tension';
@@ -15,12 +15,15 @@ import {
   BOAT_WIDTH,
   BOBBER_HEIGHT,
   BOBBER_WIDTH,
+  HOOK_HEIGHT,
+  HOOK_WIDTH,
   REEL_TEX,
   ROD_TIP_X,
   ROD_TIP_Y,
   ensureBoatTexture,
   ensureBobberTexture,
   ensureBubbleTexture,
+  ensureHookTexture,
   ensureRayTexture,
 } from '../ui/reelTextures';
 import { PALETTE, RADIUS, displayStyle, labelStyle, shade } from '../ui/theme';
@@ -34,7 +37,6 @@ import {
   transitionTo,
 } from '../ui/widgets';
 import type { GameOverOverlay, StatPill } from '../ui/widgets';
-import { FISH_COLORS } from './FishScene';
 
 const ACCENT = PALETTE.violet;
 
@@ -49,43 +51,65 @@ const BOAT_X = 96;
 const BOAT_Y = WATERLINE - 26;
 
 /** Where a cast may land: clear of the boat, clear of the far edge. */
-const CAST_MIN_X = 210;
-const CAST_MAX_X = WIDTH - 36;
+const CAST_MIN_X = 150;
+const CAST_MAX_X = WIDTH - 34;
 
 /** The bobber's ball rides the waterline; the ride puts its cap above water
  * and its belly under the surface band drawn in front of it. */
 const BOBBER_REST_Y = WATERLINE - 4;
 
-/** How far the bobber goes under on the real bite — the one unmissable cue. */
+/** How far the bobber goes under when a fish takes the hook. */
 const BITE_DIP = 16;
-const NIBBLE_DIP = 6;
+
+/** How fast the baited hook falls through the water, px/sec. */
+const SINK_PER_SEC = 340;
 
 // Caps how much sim time one frame advances, as everywhere else: a stalled
-// tab must not swallow the strike window the player was watching for.
+// tab must not swallow the school out from under the player.
 const MAX_DELTA_MS = 100;
 
-/** Timing of the waiting game. The strike window is the one number that
- * tightens with the prize — see WINDOW_MS. */
-const BITE_CONFIG: Omit<BiteConfig, 'biteWindowMs'> = {
-  minWaitMs: 1800,
-  maxWaitMs: 5000,
-  nibbleMinGapMs: 650,
-  nibbleMaxGapMs: 1500,
-  nibbleQuietMs: 900,
+/**
+ * The school the player is fishing from. The fish are visible the whole
+ * time — the game is choosing one and dropping the hook in its path. The
+ * bounds keep every fish in castable water: the left edge stays reachable
+ * from CAST_MIN_X's hook, and the floor stays above the fight panel so a
+ * deep hookup is never hidden behind its own readout.
+ */
+const SCHOOL: SchoolConfig = {
+  bounds: { minX: 110, maxX: WIDTH - 36, minY: 540, maxY: 740 },
+  fishCount: 5,
+  respawnDelayMs: 1800,
+  weights: { common: 46, fine: 28, big: 18, golden: 8 },
+  speeds: { common: 46, fine: 62, big: 34, golden: 108 },
+  speedJitter: 0.25,
+  biteRadius: 64,
+  catchRadius: 12,
+  lungeSpeed: 200,
+  attractAfterMs: 2600,
 };
 
-const WINDOW_MS: Record<CatchRarity, number> = {
-  common: 850,
-  fine: 750,
-  big: 650,
-  golden: 550,
+/**
+ * Spawn odds drift toward the rare end as the run goes on — the same arc
+ * the old blind version had — so the last casts are the ones a golden is
+ * most likely to swim in for.
+ */
+const START_WEIGHTS: Record<CatchRarity, number> = { common: 50, fine: 28, big: 16, golden: 6 };
+const END_WEIGHTS: Record<CatchRarity, number> = { common: 30, fine: 26, big: 26, golden: 18 };
+
+/** How each rarity reads underwater: colour, glow, and above all size. */
+const LOOK: Record<CatchRarity, { color: number; rare: boolean; scale: number }> = {
+  common: { color: PALETTE.cyan, rare: false, scale: 0.62 },
+  fine: { color: PALETTE.mint, rare: false, scale: 0.85 },
+  big: { color: PALETTE.amber, rare: false, scale: 1.2 },
+  golden: { color: PALETTE.gold, rare: true, scale: 0.9 },
 };
 
 // The fights. Bigger fish reel in slower, load the line faster and thrash
-// more of the time. Tuned so a common fish held straight through usually
-// survives its one thrash — a small child's first catches must land — while
-// the golden fish genuinely demands easing off, and easing off is cheap
-// (tension falls fast) so the lesson is learnable without losing the fish.
+// more of the time. Tuned as a gradient, not a cliff: held straight
+// through, a common always lands, a fine usually does, a big rarely, and
+// the golden never — each tier teaches a little more of the ease-off
+// lesson, and easing off is cheap (tension falls fast) so the lesson is
+// learnable without losing many fish.
 const FIGHTS: Record<CatchRarity, TensionConfig> = {
   common: {
     reelPerSec: 0.4,
@@ -101,7 +125,7 @@ const FIGHTS: Record<CatchRarity, TensionConfig> = {
   fine: {
     reelPerSec: 0.34,
     slipPerSec: 0.12,
-    risePerSec: 0.3,
+    risePerSec: 0.22,
     thrashRiseMult: 2.6,
     fallPerSec: 0.8,
     thrashMinGapMs: 1200,
@@ -112,7 +136,7 @@ const FIGHTS: Record<CatchRarity, TensionConfig> = {
   big: {
     reelPerSec: 0.29,
     slipPerSec: 0.12,
-    risePerSec: 0.36,
+    risePerSec: 0.3,
     thrashRiseMult: 2.6,
     fallPerSec: 0.8,
     thrashMinGapMs: 1000,
@@ -133,9 +157,6 @@ const FIGHTS: Record<CatchRarity, TensionConfig> = {
   },
 };
 
-/** How each catch looks when it finally shows itself. */
-const REVEAL_SCALE: Record<CatchRarity, number> = { common: 0.8, fine: 1, big: 1.25, golden: 1.1 };
-
 type Phase = 'idle' | 'casting' | 'waiting' | 'fighting' | 'resolving' | 'done';
 
 interface FightBars {
@@ -147,9 +168,29 @@ export class BiteScene extends Phaser.Scene {
   private phase!: Phase;
   private castsUsed = 0;
   private rarity: CatchRarity = 'common';
-  private biteState: BiteState | null = null;
+  private schoolState!: SchoolState;
   private tensionState: TensionState | null = null;
   private scoreState!: ScoreState;
+  /** True from the hook touching the water to the cast resolving. */
+  private hookInWater = false;
+  /**
+   * True only once the hook has settled at the tapped depth. A hook that
+   * tempted fish while still falling was offered to every fish in its sink
+   * column, and whichever swam above the target stole the bite — aim only
+   * means anything if the bait starts existing where it was aimed.
+   */
+  private hookArmed = false;
+  /** The depth the fish was hooked at; the fight lifts it from here. */
+  private biteY = 0;
+  /**
+   * Every pointer currently pressed on the water (chip taps stop their
+   * events before the scene sees them). The fight reads "holding" from
+   * this set, so a hold survives rolling from one finger to another.
+   */
+  private heldPointers = new Set<number>();
+  /** Casting is ignored until this clock time — a restart double-tap must
+   * not throw the new run's first cast. */
+  private castBlockedUntil = 0;
 
   private scorePill!: StatPill;
   private castsPill!: StatPill;
@@ -159,11 +200,13 @@ export class BiteScene extends Phaser.Scene {
 
   private boat!: Phaser.GameObjects.Image;
   private bobber!: Phaser.GameObjects.Image;
+  private hook!: Phaser.GameObjects.Image;
   private line!: Phaser.GameObjects.Graphics;
   private biteCue!: Phaser.GameObjects.Text;
-  private silhouette!: Phaser.GameObjects.Image;
+  private fighter!: Phaser.GameObjects.Image;
+  private fishSprites = new Map<number, Phaser.GameObjects.Image>();
   private bars!: FightBars;
-  /** Clock for the bobber's idle sway and the silhouette's rocking. */
+  /** Clock for the bobber's idle sway and the school's bobbing. */
   private swayMs = 0;
 
   constructor() {
@@ -177,11 +220,11 @@ export class BiteScene extends Phaser.Scene {
     ensureBobberTexture(this);
     ensureBubbleTexture(this);
     ensureRayTexture(this);
-    for (const color of FISH_COLORS) {
-      ensureFishTexture(this, color, { submerged: false });
+    ensureHookTexture(this);
+    for (const look of Object.values(LOOK)) {
+      ensureFishTexture(this, look.color, { rare: look.rare });
+      ensureFishTexture(this, look.color, { rare: look.rare, submerged: false });
     }
-    ensureFishTexture(this, PALETTE.amber, { submerged: false });
-    ensureFishTexture(this, PALETTE.gold, { rare: true, submerged: false });
 
     this.createBackdrop();
 
@@ -214,19 +257,21 @@ export class BiteScene extends Phaser.Scene {
       .setDisplaySize(BOBBER_WIDTH, BOBBER_HEIGHT)
       .setDepth(DEPTH.world + 1);
 
+    this.hook = this.add
+      .image(0, 0, REEL_TEX.hook)
+      .setDisplaySize(HOOK_WIDTH, HOOK_HEIGHT)
+      .setDepth(DEPTH.world + 1)
+      .setVisible(false);
+
     this.biteCue = this.add
       .text(0, 0, '!', displayStyle(34, PALETTE.gold))
       .setOrigin(0.5, 1)
       .setDepth(DEPTH.hud)
       .setVisible(false);
 
-    // What is on the line, seen only as a shape until it is landed — the
-    // reveal is the reward. Its texture is swapped per fight.
-    this.silhouette = this.add
-      .image(0, 0, ensureFishTexture(this, FISH_COLORS[0], { submerged: false }))
-      .setTint(0x0b1631)
-      .setAlpha(0)
-      .setDepth(DEPTH.world);
+    // The hooked fish during a fight. The school fish it replaces is removed
+    // from the sim, so this sprite simply takes over at the same spot.
+    this.fighter = this.add.image(0, 0, ensureFishTexture(this, PALETTE.cyan)).setVisible(false).setDepth(DEPTH.world);
 
     this.bars = this.createFightBars();
 
@@ -253,7 +298,12 @@ export class BiteScene extends Phaser.Scene {
       .setDepth(DEPTH.hud);
     this.hint.setLetterSpacing(3);
 
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handleTap(pointer));
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.heldPointers.add(pointer.id);
+      this.handleTap(pointer);
+    });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => this.heldPointers.delete(pointer.id));
+    this.input.on('pointerupoutside', (pointer: Phaser.Input.Pointer) => this.heldPointers.delete(pointer.id));
 
     createBackButton(this, {
       accent: ACCENT,
@@ -373,7 +423,7 @@ export class BiteScene extends Phaser.Scene {
   /**
    * The fight readout: a reel bar that must fill and a line bar that must
    * not. One panel, because during a fight the player's eyes are on the
-   * bobber — a single place to glance keeps the check cheap.
+   * fish — a single place to glance keeps the check cheap.
    */
   private createFightBars(): FightBars {
     const PANEL_W = 310;
@@ -438,16 +488,26 @@ export class BiteScene extends Phaser.Scene {
     this.overlay.hide();
     this.scoreState = createScore();
     this.castsUsed = 0;
-    this.biteState = null;
     this.tensionState = null;
+    this.hookInWater = false;
+    this.hookArmed = false;
+    this.heldPointers.clear();
+    this.castBlockedUntil = this.time.now + 400;
+    this.schoolState = createSchool(this.schoolConfig());
+    for (const sprite of this.fishSprites.values()) {
+      sprite.destroy();
+    }
+    this.fishSprites.clear();
     this.scorePill.setValue('0');
     this.castsPill.setValue(`${CAST_COUNT}`);
     this.bars.container.setVisible(false);
     this.biteCue.setVisible(false);
-    this.silhouette.setAlpha(0);
+    this.fighter.setVisible(false);
+    this.hook.setVisible(false);
     this.tweens.killTweensOf(this.bobber);
+    this.tweens.killTweensOf(this.hook);
     this.parkBobber();
-    this.setHint('TAP THE WATER TO CAST');
+    this.setHint('DROP THE HOOK ON A FISH');
     playMusic(this, 'reel');
   }
 
@@ -476,33 +536,80 @@ export class BiteScene extends Phaser.Scene {
     this.swayMs += dt;
 
     this.animateBobber();
+    this.tickSchool(dt);
     this.drawLine();
 
-    if (this.phase === 'waiting') {
-      this.tickWaiting(dt);
-    } else if (this.phase === 'fighting') {
+    if (this.phase === 'fighting') {
       this.tickFighting(dt);
     }
   }
 
-  /** Everything the bobber does on its own, per phase, without tweens —
-   * jitter and sway both ride on top of wherever the last tween left it. */
+  /** The spawn odds drift across the run; everything else stands still. */
+  private schoolConfig(): SchoolConfig {
+    const t = Math.min(1, this.castsUsed / (CAST_COUNT - 1));
+    const weights = {} as Record<CatchRarity, number>;
+    for (const rarity of Object.keys(START_WEIGHTS) as CatchRarity[]) {
+      weights[rarity] = START_WEIGHTS[rarity] + (END_WEIGHTS[rarity] - START_WEIGHTS[rarity]) * t;
+    }
+    return { ...SCHOOL, weights };
+  }
+
+  /**
+   * The school swims through every phase — a still tank would give the game
+   * away as a screenshot. The hook only tempts it once it has settled where
+   * the player aimed it.
+   */
+  private tickSchool(dt: number): void {
+    const hook = this.hookArmed ? { x: this.hook.x, y: this.hook.y } : null;
+    const result = tickSchool(this.schoolState, dt, hook, this.schoolConfig());
+    this.schoolState = result.state;
+    this.syncSchoolSprites();
+    if (result.bitten !== null) {
+      this.beginFight(result.bitten);
+    }
+  }
+
+  /** One sprite per sim fish: newcomers fade in, the hooked one vanishes
+   * into the fighter, and everyone bobs on the sway clock. */
+  private syncSchoolSprites(): void {
+    const seen = new Set<number>();
+    for (const fish of this.schoolState.fish) {
+      seen.add(fish.id);
+      let sprite = this.fishSprites.get(fish.id);
+      if (sprite === undefined) {
+        const look = LOOK[fish.rarity];
+        sprite = this.add
+          .image(fish.x, fish.y, ensureFishTexture(this, look.color, { rare: look.rare }))
+          .setDisplaySize(FISH_WIDTH * look.scale, FISH_HEIGHT * look.scale)
+          .setDepth(DEPTH.world)
+          .setAlpha(0);
+        this.tweens.add({ targets: sprite, alpha: 0.92, duration: 420 });
+        this.fishSprites.set(fish.id, sprite);
+      }
+      const bob = Math.sin(this.swayMs * 0.0016 + fish.id * 1.7) * 3;
+      sprite.setPosition(fish.x, fish.y + bob);
+      sprite.setFlipX(fish.dir < 0);
+      sprite.setAngle(
+        fish.lunging ? fish.dir * -10 : Math.sin(this.swayMs * 0.002 + fish.id) * 4
+      );
+    }
+    for (const [id, sprite] of this.fishSprites) {
+      if (!seen.has(id)) {
+        this.fishSprites.delete(id);
+        sprite.destroy();
+      }
+    }
+  }
+
+  /** Everything the bobber does on its own, per phase — jitter and sway ride
+   * on top of wherever the last tween left it. */
   private animateBobber(): void {
     if (this.phase === 'idle') {
       this.bobber.x = this.rodTipX() + 10 + Math.sin(this.swayMs * 0.0021) * 4;
       this.bobber.y = this.rodTipY() + 30 + Math.cos(this.swayMs * 0.0017) * 3;
     } else if (this.phase === 'fighting') {
       const thrashing = this.tensionState?.thrashing === true;
-      const amp = thrashing ? 4 : 1.5;
-      const speed = thrashing ? 0.03 : 0.012;
-      this.bobber.setAngle(Math.sin(this.swayMs * speed) * (thrashing ? 14 : 5));
-      // Below the hint line at WATERLINE + 30, which the fight instructions
-      // occupy — a fish thrashing across its own how-to reads as a bug.
-      this.silhouette.setPosition(
-        this.bobber.x + Math.sin(this.swayMs * speed) * amp * 2,
-        WATERLINE + 80 + Math.cos(this.swayMs * speed * 0.8) * amp
-      );
-      this.silhouette.setAngle(Math.sin(this.swayMs * speed * 1.3) * (thrashing ? 22 : 8));
+      this.bobber.setAngle(Math.sin(this.swayMs * (thrashing ? 0.03 : 0.012)) * (thrashing ? 14 : 5));
     }
   }
 
@@ -531,35 +638,36 @@ export class BiteScene extends Phaser.Scene {
       this.line.lineTo(x, y);
     }
     this.line.strokePath();
+
+    // The leader under the surface, dimmer for the depth: bobber down to the
+    // hook, or to the hooked fish once the hook has a mouth around it.
+    let leaderEnd: { x: number; y: number } | null = null;
+    if (this.hookInWater) {
+      leaderEnd = { x: this.hook.x, y: this.hook.y - HOOK_HEIGHT / 2 };
+    } else if (this.phase === 'fighting' && this.fighter.visible) {
+      leaderEnd = { x: this.fighter.x, y: this.fighter.y };
+    }
+    if (leaderEnd !== null) {
+      this.line.lineStyle(1.5, 0xbfd0f2, 0.28);
+      this.line.beginPath();
+      this.line.moveTo(this.bobber.x, this.bobber.y + BOBBER_HEIGHT * 0.2);
+      this.line.lineTo(leaderEnd.x, leaderEnd.y);
+      this.line.strokePath();
+    }
   }
 
   private handleTap(pointer: Phaser.Input.Pointer): void {
-    if (this.phase === 'idle') {
-      if (pointer.y > WATERLINE + 8) {
-        this.cast(pointer.x);
-      }
-      return;
-    }
-    if (this.phase === 'waiting' && this.biteState !== null) {
-      const outcome = strike(this.biteState);
-      if (outcome === 'hooked') {
-        this.startFight();
-      } else if (outcome === 'scared') {
-        this.scareOff();
-      }
-      // 'late' cannot happen here: the stolen event flips the phase to
-      // resolving on the tick it fires.
+    if (this.phase === 'idle' && pointer.y > WATERLINE + 8 && this.time.now >= this.castBlockedUntil) {
+      this.cast(pointer.x, pointer.y);
     }
     // During a fight the press IS the input — holding is read straight off
-    // the pointer in tickFighting, so there is nothing to do here.
+    // the pointer in tickFighting, so there is nothing to do here. And once
+    // the hook is wet the cast is committed: no recasts, no take-backs.
   }
 
-  private cast(targetX: number): void {
+  private cast(targetX: number, targetY: number): void {
     this.phase = 'casting';
     this.setHint('');
-    // What bites is decided at the cast, unseen: the strike window on the
-    // bobber and the fight after it both belong to this hidden fish.
-    this.rarity = pickCatch(this.castsUsed, CAST_COUNT);
 
     playSfx(this, 'launch');
     // The rod flicks forward — one quick dip of the boat sells the throw.
@@ -572,6 +680,7 @@ export class BiteScene extends Phaser.Scene {
     });
 
     const x = Phaser.Math.Clamp(targetX, CAST_MIN_X, CAST_MAX_X);
+    const depth = Phaser.Math.Clamp(targetY, SCHOOL.bounds.minY - 60, SCHOOL.bounds.maxY);
     const fromX = this.bobber.x;
     const fromY = this.bobber.y;
     const peakY = Math.min(fromY, WATERLINE) - 110;
@@ -593,76 +702,94 @@ export class BiteScene extends Phaser.Scene {
         this.bobber.setAngle(0);
         this.splash(x, 0.7);
         playSfx(this, 'plop');
-        this.biteState = createBite({ ...BITE_CONFIG, biteWindowMs: WINDOW_MS[this.rarity] });
-        this.phase = 'waiting';
-        this.setHint('WAIT FOR THE PLUNGE…');
+        this.sinkHook(x, depth);
       },
     });
   }
 
-  private tickWaiting(dt: number): void {
-    if (this.biteState === null) {
-      return;
-    }
-    const result = tickBite(this.biteState, dt, { ...BITE_CONFIG, biteWindowMs: WINDOW_MS[this.rarity] });
-    this.biteState = result.state;
-
-    if (result.event === 'nibble') {
-      playSfx(this, 'tap', { detune: -700 });
-      this.dipBobber(NIBBLE_DIP, 130);
-      this.ripple(this.bobber.x, 0.35);
-    } else if (result.event === 'bite') {
-      playSfx(this, 'bite');
-      this.dipBobber(BITE_DIP, 110);
-      this.ripple(this.bobber.x, 0.8);
-      this.biteCue.setPosition(this.bobber.x, WATERLINE - 26);
-      this.biteCue.setVisible(true).setScale(0);
-      this.tweens.add({ targets: this.biteCue, scale: 1, duration: 160, ease: 'Back.easeOut' });
-      this.setHint('STRIKE!', PALETTE.gold);
-    } else if (result.event === 'stolen') {
-      this.baitStolen();
-    }
+  /** The bait falls to the depth the player tapped — aim is x and depth
+   * both. It arms only on arrival: the fish judge the bait where it was
+   * aimed, never somewhere along the way down. */
+  private sinkHook(x: number, depth: number): void {
+    this.phase = 'waiting';
+    this.hook.setPosition(x, WATERLINE + 10);
+    this.hook.setVisible(true);
+    this.hook.setAlpha(0.95);
+    this.hookInWater = true;
+    this.setHint('WAIT FOR THE BITE…');
+    this.tweens.killTweensOf(this.hook);
+    this.tweens.add({
+      targets: this.hook,
+      y: depth,
+      duration: ((depth - WATERLINE) / SINK_PER_SEC) * 1000,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.hookArmed = true;
+      },
+    });
   }
 
-  private dipBobber(depth: number, durationMs: number): void {
+  private beginFight(fish: Fish): void {
+    this.phase = 'fighting';
+    this.rarity = fish.rarity;
+    this.biteY = fish.y;
+    this.hookInWater = false;
+    this.hookArmed = false;
+    this.hook.setVisible(false);
+    this.tweens.killTweensOf(this.hook);
+
+    playSfx(this, 'bite');
+    this.dipBobber();
+    this.ripple(this.bobber.x, 0.8);
+    this.biteCue.setPosition(this.bobber.x, WATERLINE - 26);
+    this.biteCue.setVisible(true).setScale(0);
+    this.tweens.add({ targets: this.biteCue, scale: 1, duration: 160, ease: 'Back.easeOut' });
+    this.time.delayedCall(700, () => this.biteCue.setVisible(false));
+
+    const look = LOOK[fish.rarity];
+    this.fighter.setTexture(ensureFishTexture(this, look.color, { rare: look.rare }));
+    this.fighter.setDisplaySize(FISH_WIDTH * look.scale, FISH_HEIGHT * look.scale);
+    this.fighter.setPosition(fish.x, fish.y);
+    this.fighter.setAlpha(1);
+    this.fighter.setVisible(true);
+
+    this.tensionState = createTension(FIGHTS[fish.rarity]);
+    this.bars.container.setVisible(true);
+    this.bars.draw(0, 0);
+    this.setHint('HOLD TO REEL  ·  EASE OFF THE THRASH');
+  }
+
+  private dipBobber(): void {
     this.tweens.killTweensOf(this.bobber);
     this.bobber.y = BOBBER_REST_Y;
     this.tweens.add({
       targets: this.bobber,
-      y: BOBBER_REST_Y + depth,
-      duration: durationMs,
-      yoyo: depth === NIBBLE_DIP,
+      y: BOBBER_REST_Y + BITE_DIP,
+      duration: 110,
       ease: 'Quad.easeOut',
     });
-  }
-
-  private startFight(): void {
-    this.phase = 'fighting';
-    this.biteCue.setVisible(false);
-    playSfx(this, 'launch');
-    this.tensionState = createTension(FIGHTS[this.rarity]);
-    this.bars.container.setVisible(true);
-    this.bars.draw(0, 0);
-
-    // The shape under the bobber: real texture, hidden colour. Its size is
-    // the one honest tell of what is fighting back.
-    this.silhouette.setTexture(this.textureFor(this.rarity));
-    const scale = REVEAL_SCALE[this.rarity];
-    this.silhouette.setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
-    this.silhouette.setTint(0x0b1631);
-    this.silhouette.setAlpha(0.75);
-    this.silhouette.setFlipX(false);
-    this.setHint('HOLD TO REEL  ·  EASE OFF THE THRASH');
   }
 
   private tickFighting(dt: number): void {
     if (this.tensionState === null) {
       return;
     }
-    const holding = this.input.activePointer.isDown;
+    const holding = this.heldPointers.size > 0;
     const result = tickTension(this.tensionState, dt, holding, FIGHTS[this.rarity]);
     this.tensionState = result.state;
     this.bars.draw(result.state.progress, result.state.tension);
+
+    // The reel bar made visible in the water: progress hauls the fish up
+    // from where it bit toward the surface, slack lets it dive back.
+    const thrashing = result.state.thrashing;
+    const wobble = thrashing ? 7 : 2.5;
+    const speed = thrashing ? 0.03 : 0.012;
+    const liftY = Phaser.Math.Linear(this.biteY, WATERLINE + 34, result.state.progress);
+    this.fighter.setPosition(
+      this.bobber.x + Math.sin(this.swayMs * speed) * wobble * 2,
+      liftY + Math.cos(this.swayMs * speed * 0.8) * wobble
+    );
+    this.fighter.setAngle(Math.sin(this.swayMs * speed * 1.3) * (thrashing ? 24 : 8));
 
     for (const event of result.events) {
       if (event === 'thrashStart') {
@@ -683,22 +810,11 @@ export class BiteScene extends Phaser.Scene {
   private fishEscaped(): void {
     playSfx(this, 'plop');
     this.floatText(this.bobber.x, WATERLINE - 34, 'IT WRIGGLED OFF', PALETTE.muted);
-    this.fleeSilhouette();
+    this.fleeFighter();
     this.tweens.killTweensOf(this.bobber);
     this.tweens.add({ targets: this.bobber, y: BOBBER_REST_Y, angle: 0, duration: 240, ease: 'Bounce.easeOut' });
 
     this.resolveCast();
-  }
-
-  private textureFor(rarity: CatchRarity): string {
-    if (rarity === 'golden') {
-      return ensureFishTexture(this, PALETTE.gold, { rare: true, submerged: false });
-    }
-    if (rarity === 'big') {
-      return ensureFishTexture(this, PALETTE.amber, { submerged: false });
-    }
-    const color = FISH_COLORS[Phaser.Math.Between(0, FISH_COLORS.length - 1)];
-    return ensureFishTexture(this, color, { submerged: false });
   }
 
   private landCatch(): void {
@@ -713,19 +829,19 @@ export class BiteScene extends Phaser.Scene {
       this.cameras.main.flash(120, 255, 209, 102);
     }
 
-    // The reveal: the silhouette becomes the fish it was all along and flies
-    // up out of the water toward the boat.
-    this.silhouette.clearTint();
-    this.silhouette.setAlpha(1);
-    const fromX = this.silhouette.x;
+    // Out of the water and into the boat, dry texture and all.
+    const look = LOOK[this.rarity];
+    this.fighter.setTexture(ensureFishTexture(this, look.color, { rare: look.rare, submerged: false }));
+    const fromX = this.fighter.x;
     this.splash(this.bobber.x, 1);
     this.floatText(this.bobber.x, WATERLINE - 34, `+${points}`, golden ? PALETTE.gold : ACCENT);
+    this.tweens.killTweensOf(this.fighter);
     this.tweens.add({
-      targets: this.silhouette,
+      targets: this.fighter,
       x: this.boat.x + 30,
       y: BOAT_Y - 40,
       angle: fromX > this.boat.x ? -140 : 140,
-      scale: this.silhouette.scaleX * 0.5,
+      scale: this.fighter.scaleX * 0.5,
       alpha: 0,
       duration: 560,
       ease: 'Cubic.easeIn',
@@ -738,7 +854,7 @@ export class BiteScene extends Phaser.Scene {
     playSfx(this, 'snap');
     this.cameras.main.shake(180, 0.006);
     this.floatText(this.bobber.x, WATERLINE - 34, 'SNAPPED!', PALETTE.rose);
-    this.fleeSilhouette();
+    this.fleeFighter();
     // The freed bobber springs back across the surface toward the boat.
     this.tweens.killTweensOf(this.bobber);
     this.tweens.add({
@@ -756,44 +872,18 @@ export class BiteScene extends Phaser.Scene {
     this.resolveCast();
   }
 
-  private scareOff(): void {
-    playSfx(this, 'plop');
-    this.floatText(this.bobber.x, WATERLINE - 34, 'SCARED OFF', PALETTE.rose);
-    // The fish was never visible, but its wake is: something bolts.
-    this.silhouette.setTexture(this.textureFor(this.rarity));
-    const scale = REVEAL_SCALE[this.rarity] * 0.9;
-    this.silhouette.setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
-    this.silhouette.setPosition(this.bobber.x, WATERLINE + 72);
-    this.silhouette.setTint(0x0b1631);
-    this.silhouette.setAlpha(0.5);
-    this.fleeSilhouette();
-    this.ripple(this.bobber.x, 0.5);
-
-    this.resolveCast();
-  }
-
-  private baitStolen(): void {
-    playSfx(this, 'plop');
-    this.biteCue.setVisible(false);
-    this.floatText(this.bobber.x, WATERLINE - 34, 'IT GOT AWAY', PALETTE.muted);
-    // The bobber pops back up empty.
-    this.tweens.killTweensOf(this.bobber);
-    this.tweens.add({ targets: this.bobber, y: BOBBER_REST_Y, duration: 240, ease: 'Bounce.easeOut' });
-
-    this.resolveCast();
-  }
-
-  private fleeSilhouette(): void {
-    const away = this.silhouette.x > WIDTH / 2 ? 1 : -1;
-    this.silhouette.setFlipX(away < 0);
-    this.tweens.killTweensOf(this.silhouette);
+  private fleeFighter(): void {
+    const away = this.fighter.x > WIDTH / 2 ? 1 : -1;
+    this.fighter.setFlipX(away < 0);
+    this.tweens.killTweensOf(this.fighter);
     this.tweens.add({
-      targets: this.silhouette,
-      x: this.silhouette.x + away * 180,
-      y: this.silhouette.y + 60,
+      targets: this.fighter,
+      x: this.fighter.x + away * 180,
+      y: Math.min(this.fighter.y + 80, SCHOOL.bounds.maxY),
       alpha: 0,
       duration: 420,
       ease: 'Quad.easeIn',
+      onComplete: () => this.fighter.setVisible(false),
     });
   }
 
@@ -802,8 +892,11 @@ export class BiteScene extends Phaser.Scene {
    * the cast ended. */
   private resolveCast(): void {
     this.phase = 'resolving';
-    this.biteState = null;
     this.tensionState = null;
+    this.hookInWater = false;
+    this.hookArmed = false;
+    this.hook.setVisible(false);
+    this.tweens.killTweensOf(this.hook);
     this.castsUsed += 1;
     this.castsPill.setValue(`${CAST_COUNT - this.castsUsed}`);
     this.bars.container.setVisible(false);
@@ -820,7 +913,7 @@ export class BiteScene extends Phaser.Scene {
       this.phase = 'idle';
       this.tweens.killTweensOf(this.bobber);
       this.parkBobber();
-      this.setHint('TAP THE WATER TO CAST');
+      this.setHint('DROP THE HOOK ON A FISH');
     });
   }
 

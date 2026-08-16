@@ -11,6 +11,7 @@ export const REEL_TEX = {
   bobber: 'reel-bobber',
   bubble: 'reel-bubble',
   ray: 'reel-ray',
+  hook: 'reel-hook',
 } as const;
 
 export const BOAT_WIDTH = 140;
@@ -132,6 +133,42 @@ export function ensureBobberTexture(scene: Phaser.Scene): string {
     g.fillEllipse(cx - 4, ballY - 5.5, 5, 3.5);
     g.fillStyle(PALETTE.pondRim, 0.25);
     g.fillEllipse(cx, ballY + r * 0.62, r * 1.4, r * 0.7);
+  });
+}
+
+export const HOOK_WIDTH = 18;
+export const HOOK_HEIGHT = 26;
+
+/**
+ * The baited hook the school is watching: a steel J with a worm of bait on
+ * the bend. The bait is the bright part on purpose — underwater at night it
+ * is the lure the player and the fish are both looking at.
+ */
+export function ensureHookTexture(scene: Phaser.Scene): string {
+  return define(scene, REEL_TEX.hook, HOOK_WIDTH, HOOK_HEIGHT, (g) => {
+    const shankX = 11;
+    // Eye, shank, then the bend swinging left and up into the point.
+    g.lineStyle(2, 0xd7e0f5, 0.95);
+    g.strokeCircle(shankX, 3, 2);
+    g.beginPath();
+    g.moveTo(shankX, 5);
+    g.lineTo(shankX, 14);
+    g.strokePath();
+    g.beginPath();
+    g.arc(shankX - 4.5, 14, 4.5, 0, Math.PI * 0.9, false);
+    g.strokePath();
+    g.beginPath();
+    g.moveTo(shankX - 8.6, 15.5);
+    g.lineTo(shankX - 7, 10);
+    g.strokePath();
+
+    // The bait: a warm blob riding the bend, with one moonlit glint.
+    g.fillStyle(PALETTE.rose, 1);
+    g.fillEllipse(shankX - 4, 18.5, 9, 7);
+    g.fillStyle(shade(PALETTE.rose, -0.35), 1);
+    g.fillEllipse(shankX - 1.5, 20, 4.5, 3.5);
+    g.fillStyle(0xffffff, 0.6);
+    g.fillEllipse(shankX - 6, 16.5, 3, 2);
   });
 }
 

@@ -36,7 +36,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     title: 'Big Bite',
-    tagline: 'Wait for it… strike!',
+    tagline: 'Drop the hook on the fish you want',
     sceneKey: 'BiteScene',
     accent: PALETTE.violet,
     icon: 'bobber',
