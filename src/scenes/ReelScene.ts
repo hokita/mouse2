@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { fadeOutMusic, playMusic, playSfx } from '../audio/bus';
-import { intersects, rectAt } from '../core/collision';
+import { rectAt } from '../core/collision';
+import { movingRectHitsRect } from '../core/sweptRect';
 import { createCountdown, elapsed, isFinished, secondsLeft, tickCountdown } from '../core/countdown';
 import type { CountdownState } from '../core/countdown';
 import { BAND_COUNT, BAND_POINTS, JUNK_POINTS, RARE_POINTS, bandCenterY } from '../core/depth';
@@ -150,6 +151,11 @@ export class ReelScene extends Phaser.Scene {
   private hookY = (AREA_TOP + AREA_BOTTOM) / 2;
   private targetX = WIDTH / 2;
   private targetY = (AREA_TOP + AREA_BOTTOM) / 2;
+  /** True only while a press that the WORLD saw is still down — see create(). */
+  private dragging = false;
+  /** The hook sprite's position last frame; the catch test sweeps it. */
+  private prevHookX = WIDTH / 2;
+  private prevHookY = (AREA_TOP + AREA_BOTTOM) / 2;
   private bobMs = 0;
   /** Which way the boat faces — flips with hysteresis, see updateBoat(). */
   private boatFlipped = false;
@@ -239,11 +245,25 @@ export class ReelScene extends Phaser.Scene {
       .setDepth(DEPTH.hud);
     hint.setLetterSpacing(3);
 
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.steer(pointer));
+    // Gated on `dragging`, not just `pointer.isDown`, matching the other
+    // drag-steered scenes: the HUD chips stop only the pointerDOWN that lands
+    // on them, so a hold that began on the sound or back chip still produces
+    // scene-level moves with isDown true — and without the flag those moves
+    // would steer the hook toward the HUD. The flag is only set by a down the
+    // world actually received. Releases over a chip still reach pointerup
+    // (the chips swallow a release only when its press began on them), so the
+    // flag cannot stay stuck on across a chip press.
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.dragging = true;
+      this.steer(pointer);
+    });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.isDown) {
+      if (this.dragging && pointer.isDown) {
         this.steer(pointer);
       }
+    });
+    this.input.on('pointerup', () => {
+      this.dragging = false;
     });
 
     createBackButton(this, {
@@ -412,6 +432,9 @@ export class ReelScene extends Phaser.Scene {
     this.hookY = AREA_TOP + 60;
     this.targetX = this.hookX;
     this.targetY = this.hookY;
+    this.prevHookX = this.hookX;
+    this.prevHookY = this.hookY;
+    this.dragging = false;
     this.streak = 0;
     playMusic(this, 'reel');
   }
@@ -462,6 +485,8 @@ export class ReelScene extends Phaser.Scene {
    * drag that makes it feel weighted.
    */
   private updateHook(dt: number): void {
+    this.prevHookX = this.hook.x;
+    this.prevHookY = this.hook.y;
     const follow = 1 - Math.exp(-dt / 110);
     this.hookX += (this.targetX - this.hookX) * follow;
     this.hookY += (this.targetY - this.hookY) * follow;
@@ -656,9 +681,19 @@ export class ReelScene extends Phaser.Scene {
         continue;
       }
       const pad = swimmer.kind === 'trash' ? 0 : CATCH_PAD;
-      const hookRect = rectAt(this.hook.x, this.hook.y, HOOK_WIDTH + pad * 2, HOOK_HEIGHT + pad * 2);
+      const width = HOOK_WIDTH + pad * 2;
+      const height = HOOK_HEIGHT + pad * 2;
+      // Swept from last frame's position, not tested where it landed: under
+      // the capped 100ms frame the exponential follow can move the hook a
+      // couple of hundred pixels in one step, and a fish crossed mid-step is
+      // still a fish the player visibly dragged the hook through. Same
+      // treatment Dodger gives the player ship, via the same helper. The
+      // swimmer is tested where it ended up — it moves a few pixels a frame
+      // against the hook's hundreds, so sweeping both buys nothing.
+      const from = rectAt(this.prevHookX, this.prevHookY, width, height);
+      const to = rectAt(this.hook.x, this.hook.y, width, height);
       const swimmerRect = rectAt(swimmer.sprite.x, swimmer.sprite.y, swimmer.width, swimmer.height);
-      if (!intersects(hookRect, swimmerRect)) {
+      if (!movingRectHitsRect(from, to, swimmerRect)) {
         continue;
       }
       const distance = Phaser.Math.Distance.Between(this.hook.x, this.hook.y, swimmer.sprite.x, swimmer.sprite.y);
