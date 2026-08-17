@@ -49,8 +49,15 @@ const STREAK_DETUNE_MAX = 6;
 /** One run is a minute — long enough to get somewhere, short enough to redo. */
 const RUN_MS = 60_000;
 
-/** How long the game stays on each rung of the difficulty ladder. */
-const LEVEL_STEP_MS = 12_000;
+/**
+ * How long the game stays on each rung of the difficulty ladder.
+ *
+ * Six rungs at ten seconds exactly fills RUN_MS, so a run that is played to
+ * the horn reaches — and holds for a while — the hardest the pond ever gets.
+ * A ladder that only arrives at its top rung in the last breath of the run is
+ * a ladder most players never actually climb.
+ */
+const LEVEL_STEP_MS = 10_000;
 
 /** The ordinary fish, in the four colours the rest of the project uses. */
 export const FISH_COLORS = [PALETTE.cyan, PALETTE.mint, PALETTE.violet, PALETTE.rose];
@@ -92,17 +99,27 @@ interface Level {
   odds: KindOdds;
 }
 
-// The ladder the run climbs, a rung every LEVEL_STEP_MS. It starts with a
-// single slow fish and no junk at all, so a new player's first taps always
-// land on something good; from there the gaps close, more comes up at once,
-// each catch stays up for less time, and the trash and the rare fish both grow
-// more common.
+// The ladder the run climbs, a rung every LEVEL_STEP_MS. The first rung still
+// holds back the junk entirely, so a new player's opening taps always land on
+// something good — but it is the only concession, and it is over in ten
+// seconds. From there the gaps close, more comes up at once, each catch stays
+// up for less time, and the trash and the rare fish both grow more common.
+//
+// What actually sets the difficulty of a rung is its surface time, not its
+// spawn gap: the gap decides how much there is to do, the surface time decides
+// how long you have to decide. So the window is what closes hardest across the
+// ladder — 2.1s of thinking time on the first rung, 1.05s on the last, by
+// which point a third of what surfaces is a can you have to recognise and
+// leave alone inside that same second. maxActive stays a ceiling rather than a target:
+// at every rung the spawn gap keeps the real population near two or three, and
+// the cap only bites during an unlucky cluster.
 const LEVELS: Level[] = [
-  { minSpawnMs: 1100, maxSpawnMs: 1500, surfaceMs: 2600, maxActive: 2, odds: { rare: 0.05, trash: 0 } },
-  { minSpawnMs: 900, maxSpawnMs: 1250, surfaceMs: 2300, maxActive: 3, odds: { rare: 0.07, trash: 0.14 } },
-  { minSpawnMs: 750, maxSpawnMs: 1050, surfaceMs: 2000, maxActive: 3, odds: { rare: 0.09, trash: 0.2 } },
-  { minSpawnMs: 620, maxSpawnMs: 900, surfaceMs: 1750, maxActive: 4, odds: { rare: 0.11, trash: 0.25 } },
-  { minSpawnMs: 500, maxSpawnMs: 780, surfaceMs: 1500, maxActive: 4, odds: { rare: 0.13, trash: 0.3 } },
+  { minSpawnMs: 900, maxSpawnMs: 1250, surfaceMs: 2100, maxActive: 3, odds: { rare: 0.06, trash: 0 } },
+  { minSpawnMs: 760, maxSpawnMs: 1040, surfaceMs: 1850, maxActive: 3, odds: { rare: 0.08, trash: 0.16 } },
+  { minSpawnMs: 620, maxSpawnMs: 880, surfaceMs: 1600, maxActive: 4, odds: { rare: 0.1, trash: 0.22 } },
+  { minSpawnMs: 520, maxSpawnMs: 740, surfaceMs: 1400, maxActive: 4, odds: { rare: 0.12, trash: 0.27 } },
+  { minSpawnMs: 430, maxSpawnMs: 620, surfaceMs: 1200, maxActive: 5, odds: { rare: 0.14, trash: 0.32 } },
+  { minSpawnMs: 360, maxSpawnMs: 520, surfaceMs: 1050, maxActive: 5, odds: { rare: 0.16, trash: 0.36 } },
 ];
 
 type GameState = 'playing' | 'timeUp';
@@ -326,7 +343,7 @@ export class FishScene extends Phaser.Scene {
       // The plop lives here, not inside dive(), because this is the one path
       // through dive() that represents a genuine miss. triggerTimeUp() also
       // calls dive() for every pop-up still up when the horn sounds, and at
-      // the last level that can be up to maxActive (4) copies of the same
+      // the last level that can be up to maxActive (5) copies of the same
       // buffer starting on the same frame — summed coherently that clips, so
       // the mass end-of-run dive stays silent instead.
       playSfx(this, 'plop');
