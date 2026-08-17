@@ -508,7 +508,9 @@ export class BiteScene extends Phaser.Scene {
     bg.lineStyle(1.5, PALETTE.surfaceEdge, 0.7);
     bg.strokeRoundedRect(-PANEL_W / 2, -PANEL_H / 2, PANEL_W, PANEL_H, RADIUS.pill);
 
-    const RAIL_LEFT = -98;
+    // Stops short of the boat mark by a few pixels: a landed fish should pull
+    // up alongside, not be drawn over the hull.
+    const RAIL_LEFT = -90;
     const RAIL_RIGHT = 66;
     const RAIL_Y = 0;
     const RAIL_DOTS = 12;
@@ -566,7 +568,12 @@ export class BiteScene extends Phaser.Scene {
         fills.fillStyle(ACCENT, 0.95);
         for (let i = 0; i < RAIL_DOTS; i += 1) {
           const x = dotX(i);
-          if (x < fishX - 4) {
+          // The fish swims right to left, so the water it has crossed is the
+          // water to its right. Lighting the other side would leave the rail
+          // almost full at no progress and empty it as the fish came home —
+          // a progress channel that drains, which is the one thing this panel
+          // exists to keep it from being.
+          if (x > fishX + 4) {
             fills.fillCircle(x, RAIL_Y, 2.2);
           }
         }
@@ -580,7 +587,9 @@ export class BiteScene extends Phaser.Scene {
         const danger = t >= TENSION_DANGER;
         // Never below 0.7: the pulse is meant to raise an alarm, not to make
         // the last rung standing hard to see at the worst possible moment.
-        const pulse = danger ? 0.7 + 0.3 * Math.sin(this.swayMs * 0.02) : 1;
+        // Centred on 0.85 with a half-swing, because sin runs -1 to 1 — hung
+        // off the floor instead, it would dip to 0.4 and do exactly that.
+        const pulse = danger ? 0.85 + 0.15 * Math.sin(this.swayMs * 0.02) : 1;
         const shake = thrashing ? Math.sin(this.swayMs * 0.06) * 1.6 : 0;
         const color = tensionColor(t);
 
