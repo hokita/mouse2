@@ -12,6 +12,8 @@ export const REEL_TEX = {
   bubble: 'reel-bubble',
   ray: 'reel-ray',
   hook: 'reel-hook',
+  markFish: 'reel-mark-fish',
+  markBoat: 'reel-mark-boat',
 } as const;
 
 export const BOAT_WIDTH = 140;
@@ -21,6 +23,9 @@ export const BOAT_HEIGHT = 84;
  * Where the rod tip sits relative to the boat sprite's centre. The scene
  * anchors the fishing line here every frame, so these must stay in step with
  * the rod drawn in ensureBoatTexture — negate X when the boat is flipped.
+ *
+ * These stay in the sprite's own frame: the scene rotates the offset by the
+ * hull's angle before using it, because Big Bite leans the boat under load.
  */
 export const ROD_TIP_X = 56;
 export const ROD_TIP_Y = -36;
@@ -169,6 +174,62 @@ export function ensureHookTexture(scene: Phaser.Scene): string {
     g.fillEllipse(shankX - 1.5, 20, 4.5, 3.5);
     g.fillStyle(0xffffff, 0.6);
     g.fillEllipse(shankX - 6, 16.5, 3, 2);
+  });
+}
+
+export const MARK_FISH_WIDTH = 26;
+export const MARK_FISH_HEIGHT = 16;
+export const MARK_BOAT_WIDTH = 34;
+export const MARK_BOAT_HEIGHT = 22;
+
+/**
+ * The fight panel's two marks, at glyph size. The panel has to say everything
+ * it says in pictures — the players it is for cannot read a word of it — so
+ * the haul is drawn as the fish and the boat it is being brought home to,
+ * rather than as a bar with a name on it. White, for the scene to tint: the
+ * fish takes the hooked fish's own rarity colour, so the shape crossing the
+ * panel is recognisably the shape thrashing in the water above it.
+ */
+export function ensureMarkTextures(scene: Phaser.Scene): void {
+  define(scene, REEL_TEX.markFish, MARK_FISH_WIDTH, MARK_FISH_HEIGHT, (g) => {
+    // Nose left, tail right: it is swimming home, not away.
+    fillPolygon(g, [
+      [19, 8],
+      [26, 2],
+      [26, 14],
+    ], 0xffffff);
+    g.fillStyle(0xffffff, 1);
+    g.fillEllipse(11, 8, 20, 12);
+    // The eye is the one mark that does not take the tint, which is most of
+    // what keeps this a fish rather than a blob at 26px.
+    g.fillStyle(0x0b0f22, 1);
+    g.fillCircle(6, 6.5, 1.6);
+  });
+
+  define(scene, REEL_TEX.markBoat, MARK_BOAT_WIDTH, MARK_BOAT_HEIGHT, (g) => {
+    // A shallow hull with a raked bow. Drawn flat rather than deep: a deep
+    // one at this size stops being a boat and becomes a bowl.
+    fillPolygon(g, [
+      [1, 14],
+      [33, 14],
+      [27, 20],
+      [6, 20],
+    ], 0xffffff);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(1, 12, 32, 2.5);
+    // The rod and the line hanging off it. The line is what settles it: a
+    // hull with a stick could be anything, a hull with a stick and something
+    // dangling into the water is a fishing boat.
+    g.lineStyle(1.6, 0xffffff, 0.95);
+    g.beginPath();
+    g.moveTo(12, 11);
+    g.lineTo(31, 2);
+    g.strokePath();
+    g.lineStyle(1, 0xffffff, 0.7);
+    g.beginPath();
+    g.moveTo(31, 2);
+    g.lineTo(31, 11);
+    g.strokePath();
   });
 }
 
