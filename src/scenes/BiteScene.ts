@@ -17,6 +17,10 @@ import {
   BOBBER_WIDTH,
   HOOK_HEIGHT,
   HOOK_WIDTH,
+  MARK_BOAT_HEIGHT,
+  MARK_BOAT_WIDTH,
+  MARK_FISH_HEIGHT,
+  MARK_FISH_WIDTH,
   REEL_TEX,
   ROD_TIP_X,
   ROD_TIP_Y,
@@ -24,6 +28,7 @@ import {
   ensureBobberTexture,
   ensureBubbleTexture,
   ensureHookTexture,
+  ensureMarkTextures,
   ensureRayTexture,
 } from '../ui/reelTextures';
 import { PALETTE, RADIUS, displayStyle, labelStyle, shade } from '../ui/theme';
@@ -157,11 +162,41 @@ const FIGHTS: Record<CatchRarity, TensionConfig> = {
   },
 };
 
+/**
+ * The two tiers every tension channel agrees on: calm, warning, about to go.
+ * The line in the water, the hull's lean and the panel's strand all read the
+ * load through this one function, so they can never tell different stories.
+ */
+const TENSION_WARN = 0.5;
+const TENSION_DANGER = 0.8;
+
+function tensionColor(tension: number): number {
+  return tension < TENSION_WARN ? PALETTE.mint : tension < TENSION_DANGER ? PALETTE.amber : PALETTE.rose;
+}
+
+/** How far into the top tier the load is, 0–1 — what the loud effects ride on. */
+function tensionStrain(tension: number): number {
+  return Math.max(0, (tension - TENSION_DANGER) / (1 - TENSION_DANGER));
+}
+
+/** The line with nothing on it: pale monofilament, no opinion about anything. */
+const LINE_IDLE_COLOR = 0xbfd0f2;
+
+/** The idle roll, matching the yoyo tween that used to do it: ±1.2° over 4600ms. */
+const BOAT_SWAY_DEG = 1.2;
+const BOAT_SWAY_RATE = (Math.PI * 2) / 4600;
+/** Bow-down under full load. Past this the bow buries itself in the surface band. */
+const BOAT_TILT_MAX_DEG = 8;
+/** The hull is heavy: it leans into the load and rights itself, never snaps. */
+const BOAT_TILT_EASE_MS = 130;
+
 type Phase = 'idle' | 'casting' | 'waiting' | 'fighting' | 'resolving' | 'done';
 
 interface FightBars {
   container: Phaser.GameObjects.Container;
-  draw(progress: number, tension: number): void;
+  /** The hooked fish's colour, so the mark crossing the panel is that fish. */
+  setFishColor(color: number): void;
+  draw(progress: number, tension: number, thrashing: boolean): void;
 }
 
 export class BiteScene extends Phaser.Scene {
@@ -202,12 +237,21 @@ export class BiteScene extends Phaser.Scene {
   private bobber!: Phaser.GameObjects.Image;
   private hook!: Phaser.GameObjects.Image;
   private line!: Phaser.GameObjects.Graphics;
+  private strainSparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private biteCue!: Phaser.GameObjects.Text;
   private fighter!: Phaser.GameObjects.Image;
   private fishSprites = new Map<number, Phaser.GameObjects.Image>();
   private bars!: FightBars;
   /** Clock for the bobber's idle sway and the school's bobbing. */
   private swayMs = 0;
+  /** How far the hull has leaned into the load — eased, so it never snaps. */
+  private boatTiltDeg = 0;
+  /** One-off jolts (the cast flick, a thrash shudder) ride on top of the rest. */
+  private boatFlick = { deg: 0 };
+  /** Throttles the strain sparks, which would otherwise fire every frame. */
+  private sparkCooldownMs = 0;
+  /** True from the line parting to the bobber getting back to the rod. */
+  private lineCut = false;
 
   constructor() {
     super('BiteScene');
@@ -221,6 +265,7 @@ export class BiteScene extends Phaser.Scene {
     ensureBubbleTexture(this);
     ensureRayTexture(this);
     ensureHookTexture(this);
+    ensureMarkTextures(this);
     for (const look of Object.values(LOOK)) {
       ensureFishTexture(this, look.color, { rare: look.rare });
       ensureFishTexture(this, look.color, { rare: look.rare, submerged: false });
@@ -240,14 +285,9 @@ export class BiteScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
-    this.tweens.add({
-      targets: this.boat,
-      angle: { from: -1.2, to: 1.2 },
-      duration: 2300,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    // The hull's angle is composed per frame in animateBoat() rather than
+    // tweened: the idle roll, the load's lean and one-off jolts all have to
+    // add up on one property, and only the roll is a loop.
 
     // Above the waterline band so the line visibly enters the water.
     this.line = this.add.graphics().setDepth(DEPTH.world + 3);
@@ -272,6 +312,22 @@ export class BiteScene extends Phaser.Scene {
     // The hooked fish during a fight. The school fish it replaces is removed
     // from the sim, so this sprite simply takes over at the same spot.
     this.fighter = this.add.image(0, 0, ensureFishTexture(this, PALETTE.cyan)).setVisible(false).setDepth(DEPTH.world);
+
+    // Sparks worked off the rod tip by a line at its limit. Fired by hand from
+    // the fight, never on a frequency, so they only ever mean one thing.
+    this.strainSparks = this.add
+      .particles(0, 0, TEX.spark, {
+        speed: { min: 40, max: 110 },
+        angle: { min: 200, max: 340 },
+        gravityY: 220,
+        lifespan: { min: 240, max: 420 },
+        scale: { start: 0.3, end: 0 },
+        alpha: { start: 0.9, end: 0 },
+        tint: [PALETTE.rose, PALETTE.amber],
+        blendMode: 'ADD',
+        emitting: false,
+      })
+      .setDepth(DEPTH.effects);
 
     this.bars = this.createFightBars();
 
@@ -421,15 +477,26 @@ export class BiteScene extends Phaser.Scene {
   }
 
   /**
-   * The fight readout: a reel bar that must fill and a line bar that must
-   * not. One panel, because during a fight the player's eyes are on the
-   * fish — a single place to glance keeps the check cheap.
+   * The fight readout, in pictures. It used to be two identical bars labelled
+   * REEL and LINE, which is the one shape this panel must not have: both grew
+   * to the right, but one growing meant winning and the other meant losing,
+   * and every other game a child has met teaches that a bar filling up is
+   * good news. So the two are now opposed on four axes at once — horizontal
+   * against vertical, one travelling mark against discrete rungs, growing
+   * toward a goal against depleting, and colour on top of all of it. Getting
+   * any one of them tells the story; mixing them up tells a story so wrong it
+   * is obvious.
+   *
+   * The haul is a fish swimming home to the boat, laid out boat-left and
+   * fish-right to match the water above, so the panel is a small map of the
+   * screen rather than a contradiction of it. The line is a strand of rungs
+   * that break off the top as the load comes on and grow straight back the
+   * moment the player lets go — that regrowth is the whole lesson of the game
+   * with no words in it.
    */
   private createFightBars(): FightBars {
     const PANEL_W = 310;
     const PANEL_H = 88;
-    const BAR_W = 216;
-    const BAR_H = 12;
     const container = this.add
       .container(WIDTH / 2, HEIGHT - 132)
       .setDepth(DEPTH.hud)
@@ -441,45 +508,155 @@ export class BiteScene extends Phaser.Scene {
     bg.lineStyle(1.5, PALETTE.surfaceEdge, 0.7);
     bg.strokeRoundedRect(-PANEL_W / 2, -PANEL_H / 2, PANEL_W, PANEL_H, RADIUS.pill);
 
-    const left = -PANEL_W / 2 + 18;
-    const barX = left + 58;
-    const reelLabel = this.add.text(left, -22, 'REEL', labelStyle(11, ACCENT)).setOrigin(0, 0.5);
-    reelLabel.setLetterSpacing(2);
-    const lineLabel = this.add.text(left, 14, 'LINE', labelStyle(11)).setOrigin(0, 0.5);
-    lineLabel.setLetterSpacing(2);
+    // Stops short of the boat mark by a few pixels: a landed fish should pull
+    // up alongside, not be drawn over the hull.
+    const RAIL_LEFT = -90;
+    const RAIL_RIGHT = 66;
+    const RAIL_Y = 0;
+    const RAIL_DOTS = 12;
+    const dotX = (i: number): number => RAIL_LEFT + ((RAIL_RIGHT - RAIL_LEFT) * i) / (RAIL_DOTS - 1);
 
-    const troughs = this.add.graphics();
-    for (const y of [-22, 14]) {
-      troughs.fillStyle(0x000000, 0.45);
-      troughs.fillRoundedRect(barX, y - BAR_H / 2, BAR_W, BAR_H, 6);
-      troughs.lineStyle(1, PALETTE.surfaceEdge, 0.5);
-      troughs.strokeRoundedRect(barX, y - BAR_H / 2, BAR_W, BAR_H, 6);
+    const COL_X = 112;
+    const RUNGS = 6;
+    const RUNG_W = 34;
+    const RUNG_H = 7;
+    const rungY = (i: number): number => 27.5 - i * (RUNG_H + 4);
+
+    const marks = this.add.graphics();
+    marks.fillStyle(PALETTE.surfaceEdge, 0.9);
+    for (let i = 0; i < RAIL_DOTS; i += 1) {
+      marks.fillCircle(dotX(i), RAIL_Y, 1.6);
     }
+    marks.lineStyle(1, PALETTE.surfaceEdge, 0.55);
+    for (let i = 0; i < RUNGS; i += 1) {
+      marks.strokeRoundedRect(COL_X - RUNG_W / 2, rungY(i) - RUNG_H / 2, RUNG_W, RUNG_H, 3);
+    }
+    // The hook the strand hangs off, so the column has somewhere to be from.
+    marks.lineStyle(1.5, PALETTE.muted, 0.7);
+    marks.strokeCircle(COL_X, 37, 3);
+
+    const boatMark = this.add
+      .image(-124, RAIL_Y - 3, REEL_TEX.markBoat)
+      .setDisplaySize(MARK_BOAT_WIDTH, MARK_BOAT_HEIGHT)
+      .setTint(PALETTE.muted);
+    const fishMark = this.add
+      .image(RAIL_RIGHT, RAIL_Y, REEL_TEX.markFish)
+      .setDisplaySize(MARK_FISH_WIDTH, MARK_FISH_HEIGHT);
 
     const fills = this.add.graphics();
-    container.add([bg, reelLabel, lineLabel, troughs, fills]);
+    container.add([bg, marks, boatMark, fishMark, fills]);
+
+    // Rungs only ever break one at a time, so a remembered count is all it
+    // takes to catch the moment one goes and throw a chip off it.
+    let lastWhole = RUNGS;
 
     return {
       container,
-      draw(progress: number, tension: number): void {
+      setFishColor: (color: number): void => {
+        fishMark.setTint(color);
+      },
+      draw: (progress: number, tension: number, thrashing: boolean): void => {
+        const p = Phaser.Math.Clamp(progress, 0, 1);
+        const t = Phaser.Math.Clamp(tension, 0, 1);
         fills.clear();
-        // The corner radius shrinks with a sliver-thin fill: a rounded rect
-        // narrower than its own corners renders inside out.
-        const reelW = Math.max(0, Math.min(1, progress)) * BAR_W;
-        if (reelW > 1) {
-          fills.fillStyle(ACCENT, 1);
-          fills.fillRoundedRect(barX, -22 - BAR_H / 2, reelW, BAR_H, Math.min(6, reelW / 2));
+
+        // The haul: the fish swims the rail home, and the water it has already
+        // crossed stays lit behind it.
+        const fishX = Phaser.Math.Linear(RAIL_RIGHT, RAIL_LEFT, p);
+        fishMark.x = fishX;
+        fishMark.y = RAIL_Y + Math.sin(this.swayMs * 0.006) * 1.5;
+        fills.fillStyle(ACCENT, 0.95);
+        for (let i = 0; i < RAIL_DOTS; i += 1) {
+          const x = dotX(i);
+          // The fish swims right to left, so the water it has crossed is the
+          // water to its right. Lighting the other side would leave the rail
+          // almost full at no progress and empty it as the fish came home —
+          // a progress channel that drains, which is the one thing this panel
+          // exists to keep it from being.
+          if (x > fishX + 4) {
+            fills.fillCircle(x, RAIL_Y, 2.2);
+          }
         }
-        // The line bar speaks in colour before it speaks in length: calm
-        // mint, warning amber, about-to-snap rose.
-        const lineColor = tension < 0.5 ? PALETTE.mint : tension < 0.8 ? PALETTE.amber : PALETTE.rose;
-        const lineW = Math.max(0, Math.min(1, tension)) * BAR_W;
-        if (lineW > 1) {
-          fills.fillStyle(lineColor, 1);
-          fills.fillRoundedRect(barX, 14 - BAR_H / 2, lineW, BAR_H, Math.min(6, lineW / 2));
+
+        // The line: rungs break off the top as it loads, and grow back the
+        // instant the player eases off. Nothing here fills up — filling up is
+        // the shape of the good news, one channel over.
+        const left = (1 - t) * RUNGS;
+        const whole = Math.floor(left);
+        const frac = left - whole;
+        const danger = t >= TENSION_DANGER;
+        // Never below 0.7: the pulse is meant to raise an alarm, not to make
+        // the last rung standing hard to see at the worst possible moment.
+        // Centred on 0.85 with a half-swing, because sin runs -1 to 1 — hung
+        // off the floor instead, it would dip to 0.4 and do exactly that.
+        const pulse = danger ? 0.85 + 0.15 * Math.sin(this.swayMs * 0.02) : 1;
+        const shake = thrashing ? Math.sin(this.swayMs * 0.06) * 1.6 : 0;
+        const color = tensionColor(t);
+
+        // At the top tier the gaps light up too. A depleting gauge says its
+        // worst news by being empty, and empty is the quietest a thing can
+        // be — so the rungs that have gone keep glowing where they were, and
+        // the whole column reads as alarm rather than as absence.
+        if (danger) {
+          fills.lineStyle(1, color, 0.4 * pulse);
+          for (let i = whole; i < RUNGS; i += 1) {
+            fills.strokeRoundedRect(
+              COL_X - RUNG_W / 2 + shake,
+              rungY(i) - RUNG_H / 2,
+              RUNG_W,
+              RUNG_H,
+              3
+            );
+          }
         }
+
+        fills.fillStyle(color, pulse);
+        for (let i = 0; i < whole; i += 1) {
+          fills.fillRoundedRect(COL_X - RUNG_W / 2 + shake, rungY(i) - RUNG_H / 2, RUNG_W, RUNG_H, 3);
+        }
+        // The rung on its way out frays from both edges. Its corner radius has
+        // to shrink with it: a rounded rect narrower than its own corners
+        // renders inside out.
+        if (whole < RUNGS && frac > 0) {
+          const w = RUNG_W * frac;
+          if (w > 1) {
+            fills.fillRoundedRect(
+              COL_X - w / 2 + shake,
+              rungY(whole) - RUNG_H / 2,
+              w,
+              RUNG_H,
+              Math.min(3, w / 2)
+            );
+          }
+        }
+        if (whole < lastWhole) {
+          this.snapRung(container, COL_X, rungY(whole));
+        }
+        lastWhole = whole;
       },
     };
+  }
+
+  /** Two chips thrown off a rung as it parts, so the break is not a silent pop. */
+  private snapRung(container: Phaser.GameObjects.Container, x: number, y: number): void {
+    for (const dir of [-1, 1]) {
+      const chip = this.add
+        .image(x + dir * 6, y, TEX.spark)
+        .setDisplaySize(7, 5)
+        .setTint(PALETTE.rose)
+        .setAlpha(0.9);
+      container.add(chip);
+      this.tweens.add({
+        targets: chip,
+        x: x + dir * 26,
+        y: y - 10,
+        alpha: 0,
+        angle: dir * 90,
+        duration: 340,
+        ease: 'Quad.easeOut',
+        onComplete: () => chip.destroy(),
+      });
+    }
   }
 
   private resetState(): void {
@@ -506,6 +683,12 @@ export class BiteScene extends Phaser.Scene {
     this.hook.setVisible(false);
     this.tweens.killTweensOf(this.bobber);
     this.tweens.killTweensOf(this.hook);
+    // The scene object outlives a run, so anything the fight left leaning,
+    // shaking or cut has to be put back by hand.
+    this.tweens.killTweensOf(this.boatFlick);
+    this.boatFlick.deg = 0;
+    this.boatTiltDeg = 0;
+    this.sparkCooldownMs = 0;
     this.parkBobber();
     this.setHint('DROP THE HOOK ON A FISH');
     playMusic(this, 'reel');
@@ -513,17 +696,31 @@ export class BiteScene extends Phaser.Scene {
 
   /** The bobber dangles off the rod tip between casts. */
   private parkBobber(): void {
+    // Back on the rod is exactly when a parted line is a whole line again.
+    this.lineCut = false;
     this.bobber.setPosition(this.rodTipX() + 10, this.rodTipY() + 30);
     this.bobber.setAngle(0);
     this.bobber.setAlpha(1);
   }
 
+  /**
+   * The rod tip in world space. The offset is baked into the boat texture, so
+   * it has to be rotated by whatever the hull is doing: the offset is 67px
+   * long, and at the fight's full bow-down lean an unrotated one misses the
+   * real tip by ten, leaving the line tied to a patch of empty sky.
+   */
   private rodTipX(): number {
-    return this.boat.x + ROD_TIP_X;
+    const r = this.boat.rotation;
+    return (
+      this.boat.x + ROD_TIP_X * this.boat.scaleX * Math.cos(r) - ROD_TIP_Y * this.boat.scaleY * Math.sin(r)
+    );
   }
 
   private rodTipY(): number {
-    return this.boat.y + ROD_TIP_Y;
+    const r = this.boat.rotation;
+    return (
+      this.boat.y + ROD_TIP_X * this.boat.scaleX * Math.sin(r) + ROD_TIP_Y * this.boat.scaleY * Math.cos(r)
+    );
   }
 
   private setHint(text: string, color: number = PALETTE.muted): void {
@@ -535,6 +732,9 @@ export class BiteScene extends Phaser.Scene {
     const dt = Math.min(delta, MAX_DELTA_MS);
     this.swayMs += dt;
 
+    // The boat goes first: the bobber and the line both hang off the rod tip,
+    // and the rod tip is wherever this frame's lean has put it.
+    this.animateBoat(dt);
     this.animateBobber();
     this.tickSchool(dt);
     this.drawLine();
@@ -601,6 +801,26 @@ export class BiteScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * The boat's whole angle, composed rather than tweened. A fish pulling on a
+   * rod tip that sticks out over the bow drags that bow down, so the load
+   * reads as lean — the one tension signal legible from across the room, and
+   * the one a player who is watching the fish rather than the panel still
+   * catches out of the corner of their eye.
+   */
+  private animateBoat(dt: number): void {
+    const tension = this.phase === 'fighting' ? this.tensionState?.tension ?? 0 : 0;
+    // Eased in real time rather than per frame, so a 30fps tab leans at the
+    // same speed a 60fps one does.
+    this.boatTiltDeg +=
+      (BOAT_TILT_MAX_DEG * tension - this.boatTiltDeg) * (1 - Math.exp(-dt / BOAT_TILT_EASE_MS));
+    // A boat being pulled over stops lolling: the roll quiets as the load
+    // grows, and a judder takes over once the line is nearly gone.
+    const sway = Math.sin(this.swayMs * BOAT_SWAY_RATE) * BOAT_SWAY_DEG * (1 - 0.6 * tension);
+    const judder = Math.sin(this.swayMs * 0.05) * tensionStrain(tension) * 0.7;
+    this.boat.angle = sway + this.boatTiltDeg + judder + this.boatFlick.deg;
+  }
+
   /** Everything the bobber does on its own, per phase — jitter and sway ride
    * on top of wherever the last tween left it. */
   private animateBobber(): void {
@@ -619,25 +839,59 @@ export class BiteScene extends Phaser.Scene {
     const endX = this.bobber.x;
     const endY = this.bobber.y - BOBBER_HEIGHT / 2 + 4;
 
-    // Slack while the line just hangs or drifts; taut the moment something
-    // is pulling on the far end.
-    const sag = this.phase === 'fighting' ? 2 : this.phase === 'casting' ? 6 : 14;
+    // While a fish is on, the line IS the gauge, and it says so the way a real
+    // one would: there is give in it while the load is light, and it pulls
+    // straight, bright and thick as the load comes on. That is a change of
+    // shape, not just of colour, so it still reads on a bad screen, to a
+    // colour-blind eye, and to someone who cannot read a word of the HUD.
+    const fighting = this.phase === 'fighting';
+    const tension = fighting ? this.tensionState?.tension ?? 0 : 0;
+    const thrashing = fighting && this.tensionState?.thrashing === true;
+
+    const sag = fighting ? 12 * (1 - tension) : this.phase === 'casting' ? 6 : 14;
     const controlX = (tipX + endX) / 2;
     const controlY = (tipY + endY) / 2 + sag;
 
+    const color = this.lineCut ? PALETTE.rose : fighting ? tensionColor(tension) : LINE_IDLE_COLOR;
+    const width = fighting ? 1.5 + 2.6 * tension : 1.5;
+    const alpha = fighting ? 0.55 + 0.4 * tension : 0.55;
+
+    // Near the snap the line buzzes like a plucked string. The wave is pinned
+    // at both ends — sin(3πt) is zero at t=0 and t=1 — so however hard it
+    // shakes it stays tied to the rod tip and to the bobber, and the offset
+    // rides the chord's normal so the amplitude is honest at any angle.
+    // A thrash buzzes it at any tension: that is the tell to let go, delivered
+    // in the channel the player's eyes are already on.
+    const buzz = fighting ? tensionStrain(tension) * 3 + (thrashing ? 1.8 : 0) : 0;
+    const dx = endX - tipX;
+    const dy = endY - tipY;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / len;
+    const ny = dx / len;
+    const wave = Math.sin(this.swayMs * (thrashing ? 0.075 : 0.05));
+    // A parted line keeps only the stub still on the rod.
+    const span = this.lineCut ? 0.45 : 1;
+
     this.line.clear();
-    this.line.lineStyle(1.5, 0xbfd0f2, 0.55);
+    this.line.lineStyle(width, color, alpha);
     this.line.beginPath();
     this.line.moveTo(tipX, tipY);
-    const segments = 14;
+    // More samples while it is vibrating: three antinodes across fourteen
+    // reads as a rendering fault rather than as a shake.
+    const segments = buzz > 0 ? 28 : 14;
     for (let i = 1; i <= segments; i += 1) {
-      const t = i / segments;
+      const t = (i / segments) * span;
       const inv = 1 - t;
-      const x = inv * inv * tipX + 2 * inv * t * controlX + t * t * endX;
-      const y = inv * inv * tipY + 2 * inv * t * controlY + t * t * endY;
+      const offset = buzz * Math.sin(Math.PI * 3 * t) * wave;
+      const x = inv * inv * tipX + 2 * inv * t * controlX + t * t * endX + nx * offset;
+      const y = inv * inv * tipY + 2 * inv * t * controlY + t * t * endY + ny * offset;
       this.line.lineTo(x, y);
     }
     this.line.strokePath();
+
+    if (this.lineCut) {
+      return;
+    }
 
     // The leader under the surface, dimmer for the depth: bobber down to the
     // hook, or to the hooked fish once the hook has a mouth around it.
@@ -648,7 +902,7 @@ export class BiteScene extends Phaser.Scene {
       leaderEnd = { x: this.fighter.x, y: this.fighter.y };
     }
     if (leaderEnd !== null) {
-      this.line.lineStyle(1.5, 0xbfd0f2, 0.28);
+      this.line.lineStyle(fighting ? width * 0.9 : 1.5, color, alpha * 0.5);
       this.line.beginPath();
       this.line.moveTo(this.bobber.x, this.bobber.y + BOBBER_HEIGHT * 0.2);
       this.line.lineTo(leaderEnd.x, leaderEnd.y);
@@ -670,13 +924,20 @@ export class BiteScene extends Phaser.Scene {
     this.setHint('');
 
     playSfx(this, 'launch');
-    // The rod flicks forward — one quick dip of the boat sells the throw.
+    // The rod flicks forward — one quick dip of the boat sells the throw. It
+    // tweens a plain number rather than boat.angle, which animateBoat() now
+    // assigns outright every frame and would overwrite.
+    this.tweens.killTweensOf(this.boatFlick);
+    this.boatFlick.deg = 0;
     this.tweens.add({
-      targets: this.boat,
-      angle: '+=3',
+      targets: this.boatFlick,
+      deg: 3,
       duration: 120,
       yoyo: true,
       ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.boatFlick.deg = 0;
+      },
     });
 
     const x = Phaser.Math.Clamp(targetX, CAST_MIN_X, CAST_MAX_X);
@@ -755,8 +1016,12 @@ export class BiteScene extends Phaser.Scene {
 
     this.tensionState = createTension(FIGHTS[fish.rarity]);
     this.bars.container.setVisible(true);
-    this.bars.draw(0, 0);
-    this.setHint('HOLD TO REEL  ·  EASE OFF THE THRASH');
+    this.bars.setFishColor(look.color);
+    this.bars.draw(0, 0, false);
+    // The fight tells itself in pictures; this is for whoever is reading over
+    // the player's shoulder, so it names things you can see rather than
+    // things an angler would say.
+    this.setHint('HOLD TO PULL  ·  LET GO IF IT SHAKES');
   }
 
   private dipBobber(): void {
@@ -777,7 +1042,15 @@ export class BiteScene extends Phaser.Scene {
     const holding = this.heldPointers.size > 0;
     const result = tickTension(this.tensionState, dt, holding, FIGHTS[this.rarity]);
     this.tensionState = result.state;
-    this.bars.draw(result.state.progress, result.state.tension);
+    this.bars.draw(result.state.progress, result.state.tension, result.state.thrashing);
+
+    // Sparks off the rod tip once the line is into its last tier — the loudest
+    // signal, saved for the moment that has earned it.
+    this.sparkCooldownMs -= dt;
+    if (result.state.tension >= TENSION_DANGER && this.sparkCooldownMs <= 0) {
+      this.strainSparks.emitParticleAt(this.rodTipX(), this.rodTipY(), 1);
+      this.sparkCooldownMs = 90;
+    }
 
     // The reel bar made visible in the water: progress hauls the fish up
     // from where it bit toward the surface, slack lets it dive back.
@@ -796,6 +1069,22 @@ export class BiteScene extends Phaser.Scene {
         playSfx(this, 'hurt');
         this.cameras.main.shake(140, 0.0035);
         this.ripple(this.bobber.x, 0.5);
+        // The camera shake is over in 140ms but a thrash runs the best part of
+        // a second, and a shake of the whole screen is what a snap does too.
+        // The hull jerking three times is local, lasts the danger, and belongs
+        // to the line — so it can be read as "let go" rather than as "ouch".
+        this.tweens.killTweensOf(this.boatFlick);
+        this.tweens.add({
+          targets: this.boatFlick,
+          deg: 2.5,
+          duration: 80,
+          yoyo: true,
+          repeat: 2,
+          ease: 'Sine.easeInOut',
+          onComplete: () => {
+            this.boatFlick.deg = 0;
+          },
+        });
       } else if (event === 'landed') {
         this.landCatch();
       } else if (event === 'snapped') {
@@ -853,6 +1142,11 @@ export class BiteScene extends Phaser.Scene {
   private snapLine(): void {
     playSfx(this, 'snap');
     this.cameras.main.shake(180, 0.006);
+    // A line that has parted must stop being drawn attached to both ends: the
+    // stub left whipping off the rod tip is the outcome, and it is one a
+    // player who cannot read the word for it still understands.
+    this.lineCut = true;
+    this.strainSparks.emitParticleAt(this.rodTipX(), this.rodTipY(), 8);
     this.floatText(this.bobber.x, WATERLINE - 34, 'SNAPPED!', PALETTE.rose);
     this.fleeFighter();
     // The freed bobber springs back across the surface toward the boat.
