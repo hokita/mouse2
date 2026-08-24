@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BOSS_ID, ENEMIES, ENEMY_IDS, encounterFor, isElite } from '../enemies';
 import { SKILLS } from '../skills';
 import { createRng } from '../rng';
+import { elementsAtLevel } from '../party';
 
 describe('the bestiary', () => {
   it('keys every entry by its own id', () => {
@@ -98,6 +99,47 @@ describe('encounterFor', () => {
 
   it('is reproducible from a seed', () => {
     expect(encounterFor(3, false, createRng(9))).toEqual(encounterFor(3, false, createRng(9)));
+  });
+});
+
+describe('the opening fight', () => {
+  const atLevelOne = elementsAtLevel(1);
+
+  it('only sends monsters the level-1 party can answer', () => {
+    // The one forced battle exists to teach "hit it with the colour it
+    // already is". A wisp is weak to spark, which the Caster does not learn
+    // until level 2 — and it resists the one bolt she starts with, so that
+    // fight would have taught the exact opposite of the lesson.
+    const rng = createRng(1);
+    for (let i = 0; i < 200; i += 1) {
+      for (const foe of encounterFor(1, false, rng, atLevelOne)) {
+        expect(atLevelOne).toContain(ENEMIES[foe].affinity.weak);
+      }
+    }
+  });
+
+  it('does not narrow any later fight', () => {
+    const rng = createRng(2);
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i += 1) {
+      for (const foe of encounterFor(1, false, rng)) {
+        seen.add(foe);
+      }
+    }
+    expect(seen.has('wisp')).toBe(true);
+  });
+
+  it('leaves the pool alone when nothing would be left of it', () => {
+    // A guard against a future learnset that covers no tier-1 weakness at
+    // level 1: an empty pool would be worse than an unanswerable monster.
+    const group = encounterFor(1, false, createRng(3), []);
+    expect(group.length).toBeGreaterThan(0);
+  });
+
+  it('is derived from the learnsets rather than written down twice', () => {
+    // Level 1 is the Vanguard's fire and the Caster's ice, and no spark.
+    expect([...atLevelOne].sort()).toEqual(['fire', 'ice']);
+    expect(elementsAtLevel(2)).toContain('spark');
   });
 });
 

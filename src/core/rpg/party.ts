@@ -1,7 +1,9 @@
 import { levelForExp, statsAtLevel } from './stats';
 import type { Stats } from './stats';
+import { SKILLS } from './skills';
 import type { SkillId } from './skills';
 import type { Status } from './status';
+import type { Element } from './elements';
 
 // The three the player runs with. Fixed, never chosen, never recruited: a run
 // starts the instant the card is tapped, and a roster screen would put a
@@ -197,4 +199,25 @@ export function reviveAfterVictory(hero: Hero): Hero {
 export function restHero(hero: Hero): Hero {
   const stats = heroStats(hero);
   return { ...hero, hp: stats.maxHp, mp: stats.maxMp, statuses: [] };
+}
+
+/**
+ * Which elements the party can actually bring to bear at `level`.
+ *
+ * Derived from the learnsets rather than written down, so it cannot drift
+ * when a skill moves up or down the curve. Used to keep the opening fight
+ * answerable: the Caster's bolts arrive one at a time, so at level 1 the
+ * party holds fire and ice and no spark at all.
+ */
+export function elementsAtLevel(level: number): Element[] {
+  const elements = new Set<Element>();
+  for (const def of Object.values(HEROES)) {
+    for (const entry of def.learnset) {
+      const skill = SKILLS[entry.skill];
+      if (entry.level <= level && skill.kind === 'strike' && skill.element !== 'plain') {
+        elements.add(skill.element);
+      }
+    }
+  }
+  return [...elements];
 }

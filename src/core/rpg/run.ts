@@ -6,7 +6,7 @@ import { ITEM_IDS, startingBag } from './items';
 import type { Bag, ItemId } from './items';
 import { MAP_ROWS, generateMap, nodeAt, optionsFrom } from './nodeMap';
 import type { MapNode, NodeMap } from './nodeMap';
-import { awardExp, createParty, heroStats, restHero, reviveAfterVictory } from './party';
+import { awardExp, createParty, elementsAtLevel, heroStats, restHero, reviveAfterVictory } from './party';
 import type { Hero, HeroId } from './party';
 import { createRng, pick, randInt, shuffled } from './rng';
 import type { Rng } from './rng';
@@ -106,8 +106,16 @@ export function runProgress(run: RunState): number {
   return currentNode(run).row / (MAP_ROWS - 1);
 }
 
+/** The first fight on the map, and the only tutorial this game has. */
+const OPENING_ROW = 1;
+
 export function encounterAt(node: MapNode, rng: Rng): EnemyId[] {
-  return encounterFor(node.tier, node.kind === 'elite', rng);
+  return encounterFor(
+    node.tier,
+    node.kind === 'elite',
+    rng,
+    node.row === OPENING_ROW ? elementsAtLevel(1) : undefined
+  );
 }
 
 // A node's contents are fixed by the run and the node, never by how the

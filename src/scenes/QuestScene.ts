@@ -75,11 +75,15 @@ export class QuestScene extends Phaser.Scene {
   /** Levels gained in the fight just finished, waiting to be celebrated. */
   private pendingLevelUps: LevelUp[] = [];
   /**
-   * True between stepping onto a node and that node resolving.
+   * True whenever the map must not accept a tap.
    *
-   * The map is redrawn the moment the party moves, which re-arms whatever the
-   * new node leads to — so without this a second tap during the step could
-   * move them on again and the node they landed on would never resolve.
+   * Two cases, both of which are a redraw racing an animation. Stepping onto
+   * a node redraws the map immediately, which re-arms whatever the new node
+   * leads to, so a second tap during the step would move the party on again
+   * and the node they landed on would never resolve. And a level-up flourish
+   * is the only introduction a newly learned skill gets, so travelling during
+   * it would hide the skill behind a card or a scene fade and leave the
+   * player meeting it cold in the next tray.
    */
   private moving = false;
 
@@ -148,6 +152,12 @@ export class QuestScene extends Phaser.Scene {
     }
 
     if (this.pendingLevelUps.length) {
+      // Held rather than merely scheduled. The map was armed the instant it
+      // was drawn, so a player who tapped a node straight away would have the
+      // level-up play out behind a shrine card or through the fade into the
+      // next fight — and then meet a skill in the tray that nobody had
+      // introduced. The flourish is the introduction, so it gets its moment.
+      this.moving = true;
       this.time.delayedCall(320, () => this.celebrateLevelUps());
     }
   }
@@ -421,8 +431,17 @@ export class QuestScene extends Phaser.Scene {
       });
     }
 
+    // Longest tween in the burst above, so the map re-arms the moment the
+    // last glyph has finished rather than after a guessed-at pause.
+    const learned = Math.max(...this.pendingLevelUps.map((up) => up.learned.length), 0);
+    const settleMs = Math.max(900, 160 + Math.max(0, learned - 1) * 120 + 1100);
+
     this.pendingLevelUps = [];
     this.drawParty();
+    this.time.delayedCall(settleMs, () => {
+      this.moving = false;
+      this.offerMoves();
+    });
   }
 
   private afterCard(): void {

@@ -1,6 +1,6 @@
 import { randInt, pick, shuffled } from './rng';
 import type { Rng } from './rng';
-import type { Affinity } from './elements';
+import type { Affinity, Element } from './elements';
 import type { SkillId } from './skills';
 import type { Stats } from './stats';
 
@@ -150,12 +150,33 @@ export function isElite(nodeKind: string): boolean {
  * Capped at three. A fourth silhouette does not fit across 430px next to its
  * own HP bar, and a fight the player cannot see is not a fight they can plan.
  */
-export function encounterFor(tier: Tier, elite: boolean, rng: Rng): EnemyId[] {
+export function encounterFor(
+  tier: Tier,
+  elite: boolean,
+  rng: Rng,
+  answerable?: readonly Element[]
+): EnemyId[] {
   if (tier === 4) {
     return [BOSS_ID];
   }
 
-  const pool = ENEMY_IDS.filter((id) => ENEMIES[id].tier === tier);
+  let pool = ENEMY_IDS.filter((id) => ENEMIES[id].tier === tier);
+
+  // `answerable` narrows the draw to monsters the party can actually answer.
+  // Only the opening fight passes it, and it matters there more than anywhere
+  // else: a lone wisp is weak to spark, which the Caster does not learn until
+  // level 2, and it resists the one bolt she does have. The single fight
+  // whose whole job is to teach "hit it with the colour it already is" could
+  // therefore teach the exact opposite, by punishing the only colour on offer.
+  if (answerable) {
+    const covered = pool.filter((id) => {
+      const weak = ENEMIES[id].affinity.weak;
+      return weak !== undefined && answerable.includes(weak);
+    });
+    if (covered.length > 0) {
+      pool = covered;
+    }
+  }
   const size = elite ? randInt(rng, 2, 3) : randInt(rng, 1, 2);
 
   // Draw distinct species first: two different silhouettes read as a tactical
