@@ -4,6 +4,8 @@ import { GameScene } from './scenes/GameScene';
 import { CarScene } from './scenes/CarScene';
 import { FishScene } from './scenes/FishScene';
 import { BiteScene } from './scenes/BiteScene';
+import { QuestScene } from './scenes/QuestScene';
+import { BattleScene } from './scenes/BattleScene';
 import { WIDTH, HEIGHT } from './gameConfig';
 import { PALETTE, css } from './ui/theme';
 import { initAudio } from './audio/bus';
@@ -32,7 +34,7 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [MenuScene, GameScene, CarScene, FishScene, BiteScene],
+  scene: [MenuScene, GameScene, CarScene, FishScene, BiteScene, QuestScene, BattleScene],
 };
 
 // Rendering buffers off an OfflineAudioContext takes real time — 75–160 ms in

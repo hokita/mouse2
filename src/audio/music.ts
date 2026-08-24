@@ -2,14 +2,14 @@ import { loopLengthSec, sequence, stepDurationSec } from './notes';
 import type { Step } from './notes';
 import { noise, tone } from './synth';
 
-// Five loops, three tracks each: a bass, a lead and a drum row. Every track is
+// Seven loops, three tracks each: a bass, a lead and a drum row. Every track is
 // 32 steps of an eighth note, which at 100–120 bpm is a loop of eight to ten
 // seconds — long enough not to nag, short enough to render at boot.
 //
 // All three arrays in a spec MUST be 32 entries. The loop point comes from the
 // lead, so a short bass array would silently truncate the loop.
 
-export type MusicName = 'menu' | 'dodger' | 'car' | 'fish' | 'reel';
+export type MusicName = 'menu' | 'dodger' | 'car' | 'fish' | 'reel' | 'quest' | 'battle';
 export type Drum = 'kick' | 'hat' | null;
 
 export interface MusicSpec {
@@ -156,6 +156,61 @@ export const MUSIC: Record<MusicName, MusicSpec> = {
       k, _, h, _, k, _, h, h,
       k, _, h, _, k, _, h, _,
       k, _, h, _, k, h, k, _,
+    ],
+  },
+
+  // Sigil's map. A slow procession in D minor that neither hurries the player
+  // nor lets them relax: the bass walks a step at a time, and the lead keeps
+  // circling back to the same note rather than resolving. It plays while
+  // somebody stares at a branching path deciding which way to die.
+  quest: {
+    bpm: 100,
+    leadType: 'triangle',
+    leadGain: 0.14,
+    bass: [
+      'D2', _, _, _, 'D2', _, _, _,
+      'B1', _, _, _, 'B1', _, _, _,
+      'G1', _, _, _, 'G1', _, _, _,
+      'A1', _, _, _, 'A1', _, 'C2', _,
+    ],
+    lead: [
+      'D4', _, 'E4', _, 'F4', _, 'E4', _,
+      'D4', _, _, _, 'A4', _, 'F4', _,
+      'G4', _, 'A4', _, 'B4', _, 'A4', _,
+      'F4', _, 'E4', _, 'D4', _, _, _,
+    ],
+    drums: [
+      k, _, _, _, _, _, h, _,
+      k, _, _, _, _, _, h, _,
+      k, _, _, _, _, _, h, _,
+      k, _, _, _, h, _, h, _,
+    ],
+  },
+
+  // Sigil's fights. The same D minor as the map, a fifth faster and with the
+  // kick on every beat - so a battle sounds like the map's own music finally
+  // running out of patience rather than like a different game.
+  battle: {
+    bpm: 120,
+    leadType: 'square',
+    leadGain: 0.12,
+    bass: [
+      'D2', _, 'D2', _, 'D2', _, 'A1', _,
+      'D2', _, 'D2', _, 'F2', _, 'E2', _,
+      'B1', _, 'B1', _, 'B1', _, 'F2', _,
+      'G1', _, 'G1', _, 'A1', _, 'A1', _,
+    ],
+    lead: [
+      'D5', _, 'A4', 'D5', 'F5', _, 'E5', _,
+      'D5', _, 'A4', _, 'C5', _, 'A4', _,
+      'B4', _, 'D5', 'B4', 'F5', _, 'D5', _,
+      'G4', 'A4', 'B4', _, 'C5', _, 'A4', _,
+    ],
+    drums: [
+      k, _, h, _, k, _, h, h,
+      k, _, h, _, k, _, h, _,
+      k, _, h, _, k, _, h, h,
+      k, _, h, _, k, h, k, h,
     ],
   },
 };
