@@ -711,6 +711,54 @@ export function ensureFoeTexture(scene: Phaser.Scene, shape: EnemyShape): string
   return glyph(scene, `sigil-foe-${shape}`, FOE, FOE_SHAPES[shape]);
 }
 
+// --- interface glyphs -----------------------------------------------------
+
+/**
+ * The handful of shapes that are about the game rather than in it: play
+ * again, back to the menu, this one is done, and this one is where you are.
+ *
+ * These are the glyphs a wordless game cannot borrow from its own fiction, so
+ * they lean on conventions the player already owns from every other app on
+ * the phone — a circling arrow means again, a house means out.
+ */
+export type UiGlyph = 'replay' | 'home' | 'check' | 'pin';
+
+const UI_SHAPES: Record<UiGlyph, Draw> = {
+  replay: (g, s) => {
+    const c = s / 2;
+    g.lineStyle(s * 0.11, INK, 1);
+    g.beginPath();
+    g.arc(c, c, s * 0.3, Phaser.Math.DegToRad(-40), Phaser.Math.DegToRad(230));
+    g.strokePath();
+    poly(g, [
+      [c + s * 0.34, s * 0.12],
+      [c + s * 0.36, s * 0.36],
+      [c + s * 0.12, s * 0.28],
+    ]);
+  },
+  home: (g, s) => {
+    const c = s / 2;
+    poly(g, [[c, s * 0.12], [s * 0.88, s * 0.5], [s * 0.12, s * 0.5]]);
+    g.fillStyle(INK, 1);
+    g.fillRect(s * 0.24, s * 0.48, s * 0.52, s * 0.4);
+    g.fillStyle(PALETTE.skyTop, 1);
+    g.fillRect(s * 0.42, s * 0.62, s * 0.16, s * 0.26);
+  },
+  check: (g, s) => {
+    line(g, [[s * 0.2, s * 0.52], [s * 0.42, s * 0.74], [s * 0.8, s * 0.26]], s * 0.13);
+  },
+  pin: (g, s) => {
+    const c = s / 2;
+    g.fillStyle(INK, 1);
+    g.fillCircle(c, s * 0.4, s * 0.24);
+    poly(g, [[c - s * 0.18, s * 0.52], [c + s * 0.18, s * 0.52], [c, s * 0.9]]);
+  },
+};
+
+export function ensureUiGlyph(scene: Phaser.Scene, name: UiGlyph): string {
+  return glyph(scene, `sigil-ui-${name}`, GLYPH, UI_SHAPES[name]);
+}
+
 /** A soft plate to sit a glyph on, so an icon never floats on the backdrop. */
 export function ensurePlateTexture(scene: Phaser.Scene): string {
   return define(scene, 'sigil-plate', 96, 96, (g) => {

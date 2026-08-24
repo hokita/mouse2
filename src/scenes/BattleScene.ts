@@ -23,12 +23,11 @@ import { PALETTE, displayStyle } from '../ui/theme';
 import {
   DEPTH,
   createBackButton,
-  createGameOverOverlay,
   createSoundButton,
   createStarBackdrop,
   transitionTo,
 } from '../ui/widgets';
-import type { GameOverOverlay, Starfield } from '../ui/widgets';
+import type { Starfield } from '../ui/widgets';
 import {
   PIP,
   elementColor,
@@ -41,6 +40,8 @@ import { createPartyBar } from './quest/partyBar';
 import type { PartyBar } from './quest/partyBar';
 import { createCommandBar } from './quest/commandBar';
 import type { Choice, CommandBar } from './quest/commandBar';
+import { createNodeCard } from './quest/nodeCard';
+import type { NodeCard } from './quest/nodeCard';
 
 // One fight.
 //
@@ -81,7 +82,7 @@ export class BattleScene extends Phaser.Scene {
   private enemies!: EnemyRow;
   private roster!: PartyBar;
   private commands!: CommandBar;
-  private overlay!: GameOverOverlay;
+  private card!: NodeCard;
 
   /** True once the fight has ended and the scene is on its way out. */
   private settled = false;
@@ -119,12 +120,7 @@ export class BattleScene extends Phaser.Scene {
     });
     createSoundButton(this, { accent: BATTLE_ACCENT, depth: DEPTH.overlay + 1 });
 
-    this.overlay = createGameOverOverlay(this, {
-      accent: BATTLE_ACCENT,
-      onRestart: () => this.scene.restart({ foes: this.foes }),
-      onMenu: () => transitionTo(this, 'MenuScene'),
-      isArmed: () => this.settled,
-    });
+    this.card = createNodeCard(this, BATTLE_ACCENT);
 
     playMusic(this, 'reel');
 
@@ -454,7 +450,11 @@ export class BattleScene extends Phaser.Scene {
     fadeOutMusic(this);
     playSfx(this, won ? 'levelup' : 'gameover');
     this.time.delayedCall(560, () => {
-      this.overlay.show(won ? 'CLEARED' : 'DEFEAT', 'foes', `${this.foes.length}`);
+      this.card.showOutcome(
+        won,
+        () => this.scene.restart({ foes: this.foes }),
+        () => transitionTo(this, 'MenuScene')
+      );
     });
   }
 }
