@@ -31,6 +31,7 @@ import {
   NODE,
   SIGIL,
   elementColor,
+  ensureElementMark,
   ensureHeroSigil,
   ensureNodeGlyph,
   ensureSkillGlyph,
@@ -389,19 +390,33 @@ export class QuestScene extends Phaser.Scene {
       });
 
       levelUp.learned.forEach((skill, order) => {
-        const glyph = this.add
-          .image(x + 34 + order * 30, PARTY_STRIP_Y, ensureSkillGlyph(this, SKILLS[skill].glyph))
-          .setDisplaySize(26, 26)
-          .setTint(elementColor(SKILLS[skill].element))
-          .setDepth(DEPTH.effects);
+        const glyphX = x + 34 + order * 30;
+        const rising: Phaser.GameObjects.Image[] = [
+          this.add
+            .image(glyphX, PARTY_STRIP_Y, ensureSkillGlyph(this, SKILLS[skill].glyph))
+            .setDisplaySize(26, 26)
+            .setTint(elementColor(SKILLS[skill].element))
+            .setDepth(DEPTH.effects),
+        ];
+        // Same reason as the skill tray: the bolts differ only in tint, so
+        // the mark travels with them wherever they are shown.
+        if (SKILLS[skill].element !== 'plain') {
+          rising.push(
+            this.add
+              .image(glyphX + 10, PARTY_STRIP_Y - 11, ensureElementMark(this, SKILLS[skill].element))
+              .setDisplaySize(12, 12)
+              .setTint(elementColor(SKILLS[skill].element))
+              .setDepth(DEPTH.effects)
+          );
+        }
         this.tweens.add({
-          targets: glyph,
-          y: PARTY_STRIP_Y - 46,
+          targets: rising,
+          y: `-=46`,
           alpha: 0,
           duration: 1100,
           delay: 160 + order * 120,
           ease: 'Quad.easeOut',
-          onComplete: () => glyph.destroy(),
+          onComplete: () => rising.forEach((image) => image.destroy()),
         });
       });
     }

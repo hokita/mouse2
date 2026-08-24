@@ -452,6 +452,14 @@ export class BattleScene extends Phaser.Scene {
         this.refresh();
         break;
       }
+      case 'statusFailed': {
+        const target = this.find(event.target);
+        if (target) {
+          this.floatPip(target, event.status, true);
+        }
+        playSfx(this, 'guard');
+        break;
+      }
       case 'cured':
         playSfx(this, 'heal');
         this.refresh();
@@ -531,18 +539,32 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  private floatPip(target: Combatant, kind: Parameters<typeof statusColor>[0]): void {
+  /**
+   * Floats the pip for a status. `failed` shows the one that did not take.
+   *
+   * Same glyph either way, so the player can see which affliction was
+   * attempted, but it sinks and shrinks instead of rising — plainly the
+   * opposite of the one that lands.
+   */
+  private floatPip(
+    target: Combatant,
+    kind: Parameters<typeof statusColor>[0],
+    failed = false
+  ): void {
     const { x, y } = this.positionOf(target.id);
     const pip = this.add
       .image(x, y - 10, ensureStatusPip(this, kind))
       .setDisplaySize(PIP * 1.6, PIP * 1.6)
-      .setTint(statusColor(kind))
+      .setTint(failed ? PALETTE.muted : statusColor(kind))
+      .setAlpha(failed ? 0.7 : 1)
       .setDepth(DEPTH.effects);
     this.tweens.add({
       targets: pip,
-      y: y - 58,
+      y: failed ? y + 16 : y - 58,
       alpha: 0,
-      duration: 760,
+      scaleX: failed ? pip.scaleX * 0.6 : pip.scaleX,
+      scaleY: failed ? pip.scaleY * 0.6 : pip.scaleY,
+      duration: failed ? 540 : 760,
       ease: 'Quad.easeOut',
       onComplete: () => pip.destroy(),
     });

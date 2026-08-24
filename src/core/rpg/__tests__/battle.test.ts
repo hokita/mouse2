@@ -188,6 +188,35 @@ describe('taking a turn', () => {
     expect(findCombatant(missed.state, 'foe:0')!.statuses).toEqual([]);
   });
 
+  it('reports an affliction that did not take, so a paid turn is never silent', () => {
+    // `lull` deals no damage, so on a failed roll the turn used to produce no
+    // event whatsoever - a legal, MP-spending command that the scene had
+    // nothing to draw for and which looked like an ignored tap.
+    const party: Hero[] = createParty().map((h) => (h.id === 'caster' ? { ...h, level: 5 } : h));
+    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:caster');
+
+    const missed = takeTurn(ready, { kind: 'skill', skill: 'lull', target: 'foe:0' }, unlucky);
+    expect(missed.events.some((e) => e.type === 'statusFailed')).toBe(true);
+    expect(missed.events.some((e) => e.type === 'status')).toBe(false);
+    expect(findCombatant(missed.state, 'foe:0')!.statuses).toEqual([]);
+
+    const landed = takeTurn(ready, { kind: 'skill', skill: 'lull', target: 'foe:0' }, lucky);
+    expect(landed.events.some((e) => e.type === 'status')).toBe(true);
+    expect(landed.events.some((e) => e.type === 'statusFailed')).toBe(false);
+  });
+
+  it('never reports a failed affliction against something already down', () => {
+    // The inflict roll is skipped entirely for a fallen target, so there is
+    // no miss to announce either.
+    let state = until(battle(), 'hero:warden');
+    state = {
+      ...state,
+      combatants: state.combatants.map((c) => (c.id === 'foe:0' ? { ...c, hp: 0 } : c)),
+    };
+    const { events } = takeTurn(state, { kind: 'attack', target: 'foe:0' }, unlucky);
+    expect(events.some((e) => e.type === 'statusFailed')).toBe(false);
+  });
+
   it('skips the turn of a sleeper and says why', () => {
     let state = until(battle(), 'hero:vanguard');
     state = {

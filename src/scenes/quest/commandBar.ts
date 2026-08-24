@@ -10,6 +10,7 @@ import {
   GLYPH,
   elementColor,
   ensureCommandGlyph,
+  ensureElementMark,
   ensureItemGlyph,
   ensureSkillGlyph,
 } from '../../ui/questTextures';
@@ -109,7 +110,15 @@ export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: num
   // --- the tray ------------------------------------------------------------
 
   function openTray(
-    entries: { texture: string; tint: number; enabled: boolean; choice: Choice; count?: number }[]
+    entries: {
+      texture: string;
+      tint: number;
+      enabled: boolean;
+      choice: Choice;
+      count?: number;
+      /** Element mark, for the skills whose shape alone cannot say which. */
+      mark?: string;
+    }[]
   ): void {
     tray.removeAll(true);
 
@@ -144,6 +153,21 @@ export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: num
         .setTint(entry.tint)
         .setAlpha(entry.enabled ? 1 : 0.28);
       root.add(icon);
+      if (entry.mark) {
+        // The three bolts share the `burst` shape and differ only in tint, so
+        // on their own they are unreadable to anyone who cannot separate the
+        // colours. Monsters already carry a shaped element mark to make a
+        // weakness legible without colour; without the matching mark here the
+        // player could see what to hit and still not know which spell hits
+        // it, which leaves that path built at one end only.
+        root.add(
+          scene.add
+            .image(15, -20, entry.mark)
+            .setDisplaySize(15, 15)
+            .setTint(entry.tint)
+            .setAlpha(entry.enabled ? 1 : 0.3)
+        );
+      }
       if (entry.count !== undefined) {
         const count = scene.add
           .text(0, 26, `${entry.count}`, displayStyle(16, PALETTE.text))
@@ -191,6 +215,10 @@ export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: num
                 enabled: SKILLS[id].mpCost <= actor.mp,
                 choice: { kind: 'skill', skill: id } as Choice,
                 count: SKILLS[id].mpCost,
+                mark:
+                  SKILLS[id].element === 'plain'
+                    ? undefined
+                    : ensureElementMark(scene, SKILLS[id].element),
               }))
             );
             return;

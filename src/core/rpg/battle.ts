@@ -75,6 +75,7 @@ export type BattleEvent =
   | { type: 'heal'; target: string; amount: number }
   | { type: 'mp'; target: string; amount: number }
   | { type: 'status'; target: string; status: StatusKind }
+  | { type: 'statusFailed'; target: string; status: StatusKind }
   | { type: 'statusExpired'; target: string; status: StatusKind }
   | { type: 'cured'; target: string }
   | { type: 'guard'; actor: string }
@@ -238,9 +239,17 @@ function applySkill(draft: Draft, actor: Combatant, skill: Skill, chosen: string
 
     // A status only sticks to someone still standing — otherwise a poison pip
     // would sit on a portrait that has already gone dark.
-    if (skill.inflicts && target.hp > 0 && chance(rng, skill.inflicts.chance)) {
-      target.statuses = applyStatus(target.statuses, skill.inflicts.status, skill.inflicts.turns);
-      draft.events.push({ type: 'status', target: target.id, status: skill.inflicts.status });
+    if (skill.inflicts && target.hp > 0) {
+      if (chance(rng, skill.inflicts.chance)) {
+        target.statuses = applyStatus(target.statuses, skill.inflicts.status, skill.inflicts.turns);
+        draft.events.push({ type: 'status', target: target.id, status: skill.inflicts.status });
+      } else {
+        // A miss has to be reported, not merely not-reported. `lull` deals no
+        // damage, so on a failed roll the turn produced no event at all and
+        // the scene had nothing to draw — a legal, paid-for command that
+        // looked exactly like a tap the game had ignored.
+        draft.events.push({ type: 'statusFailed', target: target.id, status: skill.inflicts.status });
+      }
     }
   }
 }
