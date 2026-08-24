@@ -95,3 +95,23 @@ describe('isOffensive', () => {
     expect(isOffensive(SKILLS.cleanse)).toBe(false);
   });
 });
+
+describe('the stat behind a skill', () => {
+  it('is named on every skill rather than guessed from its colour', () => {
+    for (const id of SKILL_IDS) {
+      expect(['atk', 'mag']).toContain(SKILLS[id].stat);
+    }
+  });
+
+  it('swings muscle behind the Vanguard fire skill and magic behind the Caster bolts', () => {
+    // `ember` is a burning sword, not a spell. Reading the stat off the
+    // element would power the game's heaviest hitter with its worst number.
+    expect(SKILLS.ember.stat).toBe('atk');
+    expect(SKILLS.flare.stat).toBe('mag');
+  });
+
+  it('gives everyone a free swing to fall back on', () => {
+    expect(SKILLS.strike.mpCost).toBe(0);
+    expect(SKILLS.strike.target).toBe('oneFoe');
+  });
+});
