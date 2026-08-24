@@ -31,6 +31,7 @@ import type { Starfield } from '../ui/widgets';
 import {
   PIP,
   elementColor,
+  ensureGuardGlyph,
   ensureStatusPip,
   statusColor,
 } from '../ui/questTextures';
@@ -456,9 +457,12 @@ export class BattleScene extends Phaser.Scene {
         this.refresh();
         break;
       case 'guard': {
-        const { x, y } = this.positionOf(event.actor);
-        this.floatNumber(x, y, '', PALETTE.cyan, 0);
+        // This used to call floatNumber with an empty string and size zero,
+        // which returns immediately — so with the sound off, Guard produced
+        // nothing at all and read as a tap the game had ignored.
+        this.floatGuard(event.actor);
         playSfx(this, 'guard');
+        this.refresh();
         break;
       }
       case 'down':
@@ -504,6 +508,26 @@ export class BattleScene extends Phaser.Scene {
       duration: 760,
       ease: 'Quad.easeOut',
       onComplete: () => label.destroy(),
+    });
+  }
+
+  /** The shield rises off whoever raised it, then settles onto their row. */
+  private floatGuard(actorId: string): void {
+    const { x, y } = this.positionOf(actorId);
+    const shield = this.add
+      .image(x, y, ensureGuardGlyph(this))
+      .setDisplaySize(34, 34)
+      .setTint(PALETTE.cyan)
+      .setDepth(DEPTH.effects);
+    this.tweens.add({
+      targets: shield,
+      y: y - 34,
+      alpha: 0,
+      scaleX: shield.scaleX * 1.4,
+      scaleY: shield.scaleY * 1.4,
+      duration: 620,
+      ease: 'Quad.easeOut',
+      onComplete: () => shield.destroy(),
     });
   }
 

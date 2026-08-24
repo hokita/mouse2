@@ -3,7 +3,14 @@ import type { BattleState, Combatant } from '../../core/rpg/battle';
 import { HEROES } from '../../core/rpg/party';
 import { PALETTE, RADIUS, displayStyle } from '../../ui/theme';
 import { DEPTH } from '../../ui/widgets';
-import { PIP, SIGIL, ensureHeroSigil, ensureStatusPip, statusColor } from '../../ui/questTextures';
+import {
+  PIP,
+  SIGIL,
+  ensureGuardGlyph,
+  ensureHeroSigil,
+  ensureStatusPip,
+  statusColor,
+} from '../../ui/questTextures';
 import { WIDTH } from '../../gameConfig';
 
 // The party's three rows along the lower middle of the screen.
@@ -25,8 +32,19 @@ const BAR_WIDTH = 214;
 const BAR_HEIGHT = 14;
 const MP_PIP_R = 4;
 const MP_PIP_GAP = 11;
-/** Beyond this the pips would run under the HP readout, so they stack up. */
-const MP_PER_ROW = 18;
+/** Fewest pips on a line — keeps a small pool from spreading out oddly. */
+const MP_PER_LINE_MIN = 18;
+/**
+ * Hard ceiling on pip lines.
+ *
+ * The pips used to wrap every 18 at fixed spacing, which silently assumed a
+ * small pool. A level-12 Caster has 49 MP, and one repeatable Focus boon
+ * takes that to 55 — a fourth line, 42px down, straight through the next
+ * hero's portrait 39px away. Lines are capped and the spacing derived from
+ * the width instead, so the row cannot grow past its own height whatever the
+ * pool reaches.
+ */
+const MP_LINES = 2;
 
 export interface PartyBar {
   container: Phaser.GameObjects.Container;
@@ -45,6 +63,7 @@ interface Row {
   bar: Phaser.GameObjects.Graphics;
   hp: Phaser.GameObjects.Text;
   mp: Phaser.GameObjects.Graphics;
+  guard: Phaser.GameObjects.Image;
   statuses: Phaser.GameObjects.Container;
   ring: Phaser.GameObjects.Graphics;
   hit: Phaser.GameObjects.Rectangle;
@@ -80,6 +99,15 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
     const mp = scene.add.graphics();
     const statuses = scene.add.container(0, 0);
 
+    // Worn on the portrait rather than floated once, because guarding lasts
+    // until this hero's next turn. It is a state, and an undrawn state does
+    // not exist to a player who cannot be told about it in words.
+    const guard = scene.add
+      .image(SIGIL_X + 17, 15, ensureGuardGlyph(scene))
+      .setDisplaySize(19, 19)
+      .setTint(PALETTE.cyan)
+      .setVisible(false);
+
     // A transparent rectangle rather than the container itself: the row's
     // drawn parts are thin and scattered, and a hit area that matches them
     // would leave dead gaps between a sigil and its bar.
@@ -87,9 +115,9 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
       .rectangle(WIDTH / 2, 0, WIDTH - 32, ROW_HEIGHT - 6, 0xffffff, 0)
       .setOrigin(0.5, 0.5);
 
-    root.add([ring, plate, sigil, bar, hp, mp, statuses, hit]);
+    root.add([ring, plate, sigil, bar, hp, mp, statuses, guard, hit]);
     container.add(root);
-    rows.push({ id: `hero:${def.id}`, root, bar, hp, mp, statuses, ring, hit, y });
+    rows.push({ id: `hero:${def.id}`, root, bar, hp, mp, statuses, guard, ring, hit, y });
   });
 
   function paintRow(row: Row, hero: Combatant): void {
@@ -122,14 +150,17 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
     row.hp.setColor(alive ? '#f1f4ff' : '#8e9bc6');
 
     row.mp.clear();
+    const perLine = Math.max(MP_PER_LINE_MIN, Math.ceil(hero.stats.maxMp / MP_LINES));
+    const gap = Math.min(MP_PIP_GAP, (BAR_WIDTH - 8) / perLine);
+    const radius = Math.min(MP_PIP_R, gap * 0.36);
     for (let i = 0; i < hero.stats.maxMp; i += 1) {
-      const col = i % MP_PER_ROW;
-      const line = Math.floor(i / MP_PER_ROW);
-      const x = BAR_X + 4 + col * MP_PIP_GAP;
-      const y = BAR_HEIGHT / 2 + 8 + line * 9;
+      const x = BAR_X + 4 + (i % perLine) * gap;
+      const y = BAR_HEIGHT / 2 + 8 + Math.floor(i / perLine) * 9;
       row.mp.fillStyle(i < hero.mp ? PALETTE.cyan : PALETTE.surfaceEdge, i < hero.mp ? 0.95 : 0.5);
-      row.mp.fillCircle(x, y, MP_PIP_R);
+      row.mp.fillCircle(x, y, radius);
     }
+
+    row.guard.setVisible(alive && hero.guarding);
 
     row.statuses.removeAll(true);
     hero.statuses.forEach((status, i) => {

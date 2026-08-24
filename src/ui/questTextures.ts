@@ -280,20 +280,7 @@ export function ensureSkillGlyph(scene: Phaser.Scene, name: SkillGlyph): string 
 export function ensureCommandGlyphs(scene: Phaser.Scene): void {
   glyph(scene, QUEST_TEX.cmdAttack, GLYPH, SKILL_SHAPES.blade);
   glyph(scene, QUEST_TEX.cmdSkill, GLYPH, SKILL_SHAPES.burst);
-  glyph(scene, QUEST_TEX.cmdGuard, GLYPH, (g, s) => {
-    const c = s / 2;
-    poly(g, [
-      [c, s * 0.1],
-      [s * 0.84, s * 0.26],
-      [s * 0.84, s * 0.56],
-      [c, s * 0.92],
-      [s * 0.16, s * 0.56],
-      [s * 0.16, s * 0.26],
-    ]);
-    // Half-shaded, so a guard reads as "half of what was coming".
-    g.fillStyle(PALETTE.skyTop, 0.45);
-    g.fillRect(c, s * 0.1, s * 0.4, s * 0.82);
-  });
+  ensureGuardGlyph(scene);
   glyph(scene, QUEST_TEX.cmdItem, GLYPH, (g, s) => {
     const c = s / 2;
     g.fillStyle(INK, 1);
@@ -308,6 +295,31 @@ export function ensureCommandGlyphs(scene: Phaser.Scene): void {
     g.fillRect(c - s * 0.22, s * 0.5, s * 0.44, s * 0.14);
   });
   ensureTargetRing(scene);
+}
+
+/**
+ * The half-shaded shield: the Guard command, and the mark worn by whoever is
+ * currently guarding.
+ *
+ * Separately ensurable for the same reason as the target ring — the party bar
+ * is built before the command bar, and a texture requested before it exists
+ * binds to Phaser's missing-texture fallback for good.
+ */
+export function ensureGuardGlyph(scene: Phaser.Scene): string {
+  return glyph(scene, QUEST_TEX.cmdGuard, GLYPH, (g, s) => {
+    const c = s / 2;
+    poly(g, [
+      [c, s * 0.1],
+      [s * 0.84, s * 0.26],
+      [s * 0.84, s * 0.56],
+      [c, s * 0.92],
+      [s * 0.16, s * 0.56],
+      [s * 0.16, s * 0.26],
+    ]);
+    // Half-shaded, so a guard reads as "half of what was coming".
+    g.fillStyle(PALETTE.skyTop, 0.45);
+    g.fillRect(c, s * 0.1, s * 0.4, s * 0.82);
+  });
 }
 
 /**
