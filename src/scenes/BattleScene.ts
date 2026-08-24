@@ -74,6 +74,17 @@ export interface BattleSceneData {
 export class BattleScene extends Phaser.Scene {
   private stars!: Starfield;
   private state!: BattleState;
+  /**
+   * What is currently on screen, which lags `state` during a turn.
+   *
+   * `takeTurn` hands back the fully resolved end of the turn in one go, but
+   * the whole point of the event list is that a wordless game shows one beat
+   * at a time. Painting from `state` meant the first damage number of an
+   * all-target spell arrived with every HP bar already at its final value,
+   * and a status pip appeared before the beat that inflicted it. So the scene
+   * keeps its own copy and walks it forward one event at a time.
+   */
+  private display!: BattleState;
   private rng!: Rng;
   private party!: Hero[];
   private foes!: EnemyId[];
@@ -103,6 +114,7 @@ export class BattleScene extends Phaser.Scene {
     this.returnTo = data.returnTo;
     this.rng = createRng(data.seed ?? Date.now() % 100000);
     this.state = createBattle(this.party, this.foes, this.rng, data.bag ?? { potion: 2 });
+    this.display = this.state;
   }
 
   create(): void {
@@ -133,9 +145,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refresh(): void {
-    this.enemies.update(this.state);
-    this.enemies.setQueue(this.state);
-    this.roster.update(this.state);
+    this.enemies.update(this.display);
+    this.enemies.setQueue(this.display);
+    this.roster.update(this.display);
   }
 
   // --- the turn loop ------------------------------------------------------
@@ -271,6 +283,9 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    // `display` stays on the turn's opening position; playEvents walks it
+    // forward beat by beat until it catches up with `state`.
+    this.display = this.state;
     this.state = state;
     this.busy = true;
     this.playEvents(events, () => {
@@ -285,16 +300,102 @@ export class BattleScene extends Phaser.Scene {
     let delay = 0;
 
     for (const event of events) {
-      this.time.delayedCall(delay, () => this.playEvent(event));
+      this.time.delayedCall(delay, () => {
+        this.applyToDisplay(event);
+        this.playEvent(event);
+      });
       // A hit needs a beat to land; bookkeeping like an expiring pip does not
       // and would only pad the fight out.
       delay += event.type === 'statusExpired' || event.type === 'act' ? BEAT * 0.35 : BEAT;
     }
 
     this.time.delayedCall(delay + BEAT * 0.4, () => {
+      // Whatever the events did not cover — the new turn order, the spent
+      // item — arrives here, once the beats have all been seen.
+      this.display = this.state;
       this.refresh();
       done();
     });
+  }
+
+  /**
+   * Walks the on-screen copy forward by exactly one event.
+   *
+   * Mirrors what battle.ts already did to produce the event, which is a
+   * duplication worth paying for: the alternative is threading a snapshot
+   * through every step of the resolver purely so the renderer can watch.
+   */
+  private applyToDisplay(event: BattleEvent): void {
+    const combatants = this.display.combatants.map((c) => ({ ...c, statuses: [...c.statuses] }));
+    const at = (id: string): Combatant | undefined => combatants.find((c) => c.id === id);
+
+    switch (event.type) {
+      case 'act': {
+        // MP is spent inside takeTurn without an event of its own, so the
+        // pips would otherwise stay full until the whole turn finished.
+        const actor = at(event.actor);
+        if (actor && event.skill) {
+          actor.mp = Math.max(0, actor.mp - SKILLS[event.skill].mpCost);
+        }
+        break;
+      }
+      case 'damage': {
+        const target = at(event.target);
+        if (target) {
+          target.hp = Math.max(0, target.hp - event.amount);
+          target.statuses = target.statuses.filter((status) => status.kind !== 'sleep');
+        }
+        break;
+      }
+      case 'heal': {
+        const target = at(event.target);
+        if (target) {
+          target.hp = Math.min(target.stats.maxHp, target.hp + event.amount);
+        }
+        break;
+      }
+      case 'mp': {
+        const target = at(event.target);
+        if (target) {
+          target.mp = Math.min(target.stats.maxMp, target.mp + event.amount);
+        }
+        break;
+      }
+      case 'status': {
+        const target = at(event.target);
+        if (target && !target.statuses.some((s) => s.kind === event.status)) {
+          // Duration is cosmetic here: the pip only has to appear on the beat
+          // that put it there, and the real turn count arrives at the end.
+          target.statuses = [...target.statuses, { kind: event.status, turns: 1 }];
+        }
+        break;
+      }
+      case 'statusExpired': {
+        const target = at(event.target);
+        if (target) {
+          target.statuses = target.statuses.filter((status) => status.kind !== event.status);
+        }
+        break;
+      }
+      case 'cured': {
+        const target = at(event.target);
+        if (target) {
+          target.statuses = target.statuses.filter((status) => status.kind === 'regen');
+        }
+        break;
+      }
+      case 'guard': {
+        const actor = at(event.actor);
+        if (actor) {
+          actor.guarding = true;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+
+    this.display = { ...this.display, combatants };
   }
 
   private playEvent(event: BattleEvent): void {
@@ -381,7 +482,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private find(id: string): Combatant | undefined {
-    return this.state.combatants.find((c) => c.id === id);
+    return this.display.combatants.find((c) => c.id === id);
   }
 
   private positionOf(id: string): { x: number; y: number } {
@@ -451,6 +552,7 @@ export class BattleScene extends Phaser.Scene {
     this.commands.hide();
     this.clearAim();
     this.roster.setActive(null);
+    this.display = this.state;
     this.refresh();
 
     if (this.returnTo) {

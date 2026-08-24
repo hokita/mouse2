@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { simulateRun } from './simulate';
+import { MAX_LEVEL } from '../stats';
 
 // The safety net a turn-based game needs and an arcade game does not.
 //
@@ -48,11 +49,16 @@ describe('the campaign is winnable, and not a formality', () => {
     expect(avgFights).toBeGreaterThan(5);
   });
 
-  it('leaves a finished party well up the level curve but short of the cap', () => {
+  it('leaves a finished party near the top of the level curve', () => {
+    // Winners average about 11.5 of a possible 12, so most of them do cap out
+    // on the last fight or two. The upper guard is therefore not the average
+    // - with a cap of 12 that average can never exceed it, so the assertion
+    // would hold however much EXP was handed out. What actually catches
+    // runaway income is that some winners still finish short of the cap.
     const wins = skilled.filter((r) => r.won);
     const avgLevel = wins.reduce((sum, r) => sum + r.level, 0) / wins.length;
-    expect(avgLevel).toBeGreaterThan(6);
-    expect(avgLevel).toBeLessThan(12);
+    expect(avgLevel).toBeGreaterThan(9);
+    expect(wins.some((r) => r.level < MAX_LEVEL)).toBe(true);
   });
 });
 

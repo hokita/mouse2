@@ -307,7 +307,20 @@ export function ensureCommandGlyphs(scene: Phaser.Scene): void {
     g.fillStyle(PALETTE.skyTop, 0.4);
     g.fillRect(c - s * 0.22, s * 0.5, s * 0.44, s * 0.14);
   });
-  glyph(scene, QUEST_TEX.targetRing, GLYPH * 1.6, (g, s) => {
+  ensureTargetRing(scene);
+}
+
+/**
+ * The four corner ticks that mark what a skill is pointed at.
+ *
+ * Has its own ensure rather than riding along with the command glyphs: the
+ * enemy row is built before the command bar, so anything that waited on
+ * `ensureCommandGlyphs` would be bound to Phaser's missing-texture fallback
+ * for the whole of the first fight — and a texture added later does not
+ * rebind an image that already missed it.
+ */
+export function ensureTargetRing(scene: Phaser.Scene): string {
+  return glyph(scene, QUEST_TEX.targetRing, GLYPH * 1.6, (g, s) => {
     const c = s / 2;
     g.lineStyle(s * 0.045, INK, 1);
     for (let i = 0; i < 4; i += 1) {

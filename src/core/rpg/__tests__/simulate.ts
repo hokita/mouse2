@@ -9,7 +9,7 @@ import {
 import type { BattleState, Combatant, Command } from '../battle';
 import type { Element } from '../elements';
 import type { EnemyId } from '../enemies';
-import { learnedSkills } from '../party';
+import { heroStats, learnedSkills } from '../party';
 import type { Hero, HeroId } from '../party';
 import { createRng, pick } from '../rng';
 import type { Rng } from '../rng';
@@ -170,9 +170,12 @@ export interface RunOutcome {
 /** Picks the next node: patch up when hurt, otherwise take what is offered. */
 function chooseNext(run: RunState, rng: Rng): number {
   const options = optionsFor(run);
+  // Wounded share of the party's total capacity. The denominator has to be
+  // maximum HP: summing current HP again makes the ratio identically 1, and
+  // the policy then never seeks a rest at all.
   const health =
     run.party.reduce((sum, h) => sum + Math.max(0, h.hp), 0) /
-    run.party.reduce((sum, h) => sum + Math.max(1, h.hp), 0);
+    run.party.reduce((sum, h) => sum + heroStats(h).maxHp, 0);
   if (health < 0.6) {
     const rest = options.find((node) => node.kind === 'rest');
     if (rest) {

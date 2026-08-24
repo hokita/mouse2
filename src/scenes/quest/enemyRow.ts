@@ -8,11 +8,11 @@ import { TEX } from '../../ui/textures';
 import {
   FOE,
   MARK,
-  QUEST_TEX,
   elementColor,
   ensureElementMark,
   ensureFoeTexture,
   ensureHeroSigil,
+  ensureTargetRing,
 } from '../../ui/questTextures';
 import { WIDTH } from '../../gameConfig';
 
@@ -93,7 +93,7 @@ export function createEnemyRow(
 
     const bar = scene.add.graphics();
     const ring = scene.add
-      .image(0, 0, QUEST_TEX.targetRing)
+      .image(0, 0, ensureTargetRing(scene))
       .setDisplaySize(FOE * 1.4 * scale, FOE * 1.4 * scale)
       .setTint(PALETTE.text)
       .setVisible(false);
