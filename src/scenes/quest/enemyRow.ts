@@ -8,11 +8,14 @@ import { TEX } from '../../ui/textures';
 import {
   FOE,
   MARK,
+  PIP,
   elementColor,
   ensureElementMark,
   ensureFoeTexture,
   ensureHeroSigil,
+  ensureStatusPip,
   ensureTargetRing,
+  statusColor,
 } from '../../ui/questTextures';
 import { WIDTH } from '../../gameConfig';
 
@@ -47,6 +50,7 @@ interface Foe {
   body: Phaser.GameObjects.Image;
   bar: Phaser.GameObjects.Graphics;
   ring: Phaser.GameObjects.Image;
+  statuses: Phaser.GameObjects.Container;
   homeY: number;
 }
 
@@ -92,17 +96,44 @@ export function createEnemyRow(
       .setTint(tint);
 
     const bar = scene.add.graphics();
+    const statuses = scene.add.container(0, -FOE * scale * 0.5 - 4);
     const ring = scene.add
       .image(0, 0, ensureTargetRing(scene))
       .setDisplaySize(FOE * 1.4 * scale, FOE * 1.4 * scale)
       .setTint(PALETTE.text)
       .setVisible(false);
 
-    root.add([glow, body, mark, bar, ring]);
+    root.add([glow, body, mark, bar, statuses, ring]);
     root.setSize(FOE * scale, FOE * scale + 40);
     container.add(root);
-    foes.push({ id: foe.id, root, body, bar, ring, homeY: centerY });
+    foes.push({ id: foe.id, root, body, bar, ring, statuses, homeY: centerY });
   });
+
+  /**
+   * The pips riding above a monster's head.
+   *
+   * Not decoration: `applyStatus` refreshes rather than stacks, so casting
+   * `venom` at something already poisoned spends the MP and the turn for
+   * nothing. The floating pip on the beat it lands is gone in under a second,
+   * which leaves the player no way to tell — so the state has to persist on
+   * the monster exactly as it does on the party's own portraits.
+   */
+  function paintStatuses(foe: Foe, combatant: Combatant): void {
+    foe.statuses.removeAll(true);
+    if (combatant.hp <= 0) {
+      return;
+    }
+    const size = PIP * 0.9;
+    const startX = -((combatant.statuses.length - 1) * (size + 3)) / 2;
+    combatant.statuses.forEach((status, index) => {
+      foe.statuses.add(
+        scene.add
+          .image(startX + index * (size + 3), 0, ensureStatusPip(scene, status.kind))
+          .setDisplaySize(size, size)
+          .setTint(statusColor(status.kind))
+      );
+    });
+  }
 
   function paintBar(foe: Foe, combatant: Combatant): void {
     const fraction = Math.max(0, combatant.hp / combatant.stats.maxHp);
@@ -133,6 +164,7 @@ export function createEnemyRow(
         const combatant = next.combatants.find((c) => c.id === foe.id);
         if (combatant) {
           paintBar(foe, combatant);
+          paintStatuses(foe, combatant);
         }
       }
     },
