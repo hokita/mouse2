@@ -15,18 +15,22 @@ import {
 } from '../ui/textures';
 import { FISH_HEIGHT, FISH_WIDTH, ensureFishTexture } from '../ui/pondTextures';
 import { BOBBER_HEIGHT, BOBBER_WIDTH, ensureBobberTexture } from '../ui/reelTextures';
+import { NODE, ensureNodeGlyph } from '../ui/questTextures';
 import { DEPTH, containerHitArea, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import { PLAYER_CAR_COLOR } from './CarScene';
 import { FISH_COLORS } from './FishScene';
 
-// Sized around four cards: a hair tighter than the three-card layout was,
-// so the stack still clears the title above and the footer below.
+// Sized around five cards. The stack is now the tallest thing on this screen,
+// so the card height is set by what has to clear the title above and the
+// footer below rather than by what looks comfortable on its own: five at 90px
+// plus their gaps ends 35px clear of the footer, and a sixth game will mean
+// rethinking the layout rather than shaving another two pixels off.
 const TITLE_Y = HEIGHT * 0.24;
 const CARD_WIDTH = 350;
-const CARD_HEIGHT = 108;
-const CARD_SPACING = 18;
-const FIRST_CARD_Y = HEIGHT * 0.42;
+const CARD_HEIGHT = 90;
+const CARD_SPACING = 13;
+const FIRST_CARD_Y = 366;
 
 export class MenuScene extends Phaser.Scene {
   private stars!: Starfield;
@@ -74,7 +78,7 @@ export class MenuScene extends Phaser.Scene {
     rule.fillRoundedRect(WIDTH / 2 - 26, TITLE_Y + 44, 52, 4, 2);
 
     this.add
-      .text(WIDTH / 2, TITLE_Y + 74, 'Four small games. One thumb.', bodyStyle(15))
+      .text(WIDTH / 2, TITLE_Y + 74, 'Five small games. One thumb.', bodyStyle(15))
       .setOrigin(0.5, 0.5)
       .setDepth(DEPTH.hud);
 
@@ -153,17 +157,17 @@ export class MenuScene extends Phaser.Scene {
     // Tinted plate behind the artwork, so each game gets a recognisable badge.
     const plate = this.add.graphics();
     plate.fillStyle(game.accent, 0.16);
-    plate.fillRoundedRect(-halfW + 16, -40, 80, 80, 20);
+    plate.fillRoundedRect(-halfW + 16, -34, 68, 68, 18);
     plate.lineStyle(1.5, game.accent, 0.45);
-    plate.strokeRoundedRect(-halfW + 16, -40, 80, 80, 20);
+    plate.strokeRoundedRect(-halfW + 16, -34, 68, 68, 18);
 
-    const icon = this.createIcon(game.icon).setPosition(-halfW + 56, 0);
+    const icon = this.createIcon(game.icon).setPosition(-halfW + 50, 0);
 
     const title = this.add
-      .text(-halfW + 112, -16, game.title, displayStyle(26))
+      .text(-halfW + 100, -14, game.title, displayStyle(24))
       .setOrigin(0, 0.5);
     const tagline = this.add
-      .text(-halfW + 112, 14, game.tagline, bodyStyle(13.5))
+      .text(-halfW + 100, 13, game.tagline, bodyStyle(12.5))
       .setOrigin(0, 0.5);
 
     const chevron = this.add
@@ -222,6 +226,14 @@ export class MenuScene extends Phaser.Scene {
       return this.add
         .image(0, 0, ensureFishTexture(this, FISH_COLORS[1], { submerged: false }))
         .setDisplaySize(FISH_WIDTH * scale, FISH_HEIGHT * scale);
+    }
+    if (icon === 'sigil') {
+      // The crossed blades the campaign map uses for a fight - the one glyph
+      // that says "this one is a role-playing game" without a word on it.
+      return this.add
+        .image(0, 0, ensureNodeGlyph(this, 'battle'))
+        .setDisplaySize(NODE * 1.28, NODE * 1.28)
+        .setTint(PALETTE.rose);
     }
     if (icon === 'bobber') {
       // The bobber is a small glyph, so it gets more enlargement than the

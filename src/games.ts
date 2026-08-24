@@ -1,6 +1,6 @@
 import { PALETTE } from './ui/theme';
 
-export type GameIcon = 'ship' | 'car' | 'fish' | 'bobber';
+export type GameIcon = 'ship' | 'car' | 'fish' | 'bobber' | 'sigil';
 
 export interface GameEntry {
   title: string;
@@ -40,5 +40,12 @@ export const GAMES: GameEntry[] = [
     sceneKey: 'BiteScene',
     accent: PALETTE.violet,
     icon: 'bobber',
+  },
+  {
+    title: 'Sigil',
+    tagline: 'Hit it with the colour it already is',
+    sceneKey: 'QuestScene',
+    accent: PALETTE.rose,
+    icon: 'sigil',
   },
 ];
