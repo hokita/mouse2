@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS_MAX_HP, BOSS_PHASES, phaseAt } from '../boss';
+import {
+  BOSS_MAX_HP,
+  BOSS_PHASES,
+  BOSS_SPAWN_Y,
+  BOSS_STATION_Y,
+  BOSS_WIDTH,
+  arrivalY,
+  bossHullBottom,
+  bossPlayerFloor,
+  phaseAt,
+  playerFloorForHull,
+  slideBounds,
+  slideX,
+} from '../boss';
 
 describe('phaseAt', () => {
   it('opens in phase 1 at full health', () => {
@@ -52,5 +65,126 @@ describe('BOSS_PHASES', () => {
     expect(BOSS_PHASES[2].fanCount).toBe(5);
     expect(BOSS_PHASES[3].fanCount).toBe(5);
     expect(BOSS_PHASES[2].fanSpreadRadians).toBeGreaterThan(BOSS_PHASES[1].fanSpreadRadians);
+  });
+});
+
+describe('slideBounds', () => {
+  it('keeps the whole hull on screen with a margin at each edge', () => {
+    const { minX, maxX } = slideBounds(430);
+    expect(minX).toBe(131);
+    expect(maxX).toBe(299);
+    expect(minX - BOSS_WIDTH / 2).toBeGreaterThanOrEqual(0);
+    expect(maxX + BOSS_WIDTH / 2).toBeLessThanOrEqual(430);
+  });
+});
+
+describe('slideX', () => {
+  const { minX, maxX } = slideBounds(430);
+
+  it('starts at the left extreme', () => {
+    expect(slideX(0, 1, minX, maxX)).toBeCloseTo(minX, 5);
+  });
+
+  it('reaches the right extreme at half a period', () => {
+    expect(slideX(BOSS_PHASES[1].slidePeriodMs / 2, 1, minX, maxX)).toBeCloseTo(maxX, 5);
+  });
+
+  it('returns to the left extreme after a full period', () => {
+    expect(slideX(BOSS_PHASES[1].slidePeriodMs, 1, minX, maxX)).toBeCloseTo(minX, 5);
+  });
+
+  it('never leaves the bounds, at any phase or time', () => {
+    for (const phase of [1, 2, 3] as const) {
+      for (let ms = 0; ms <= 12_000; ms += 37) {
+        const x = slideX(ms, phase, minX, maxX);
+        expect(x).toBeGreaterThanOrEqual(minX - 1e-9);
+        expect(x).toBeLessThanOrEqual(maxX + 1e-9);
+      }
+    }
+  });
+
+  it('eases — it moves slower at the turns than at mid-sweep', () => {
+    // The cosine ease is what makes the hull readable rather than a
+    // ping-pong ball. Compare the distance covered in the same 50ms at the
+    // turn against mid-sweep.
+    const period = BOSS_PHASES[1].slidePeriodMs;
+    const atTurn = Math.abs(slideX(50, 1, minX, maxX) - slideX(0, 1, minX, maxX));
+    const atMid = Math.abs(
+      slideX(period / 4 + 50, 1, minX, maxX) - slideX(period / 4, 1, minX, maxX)
+    );
+    expect(atTurn).toBeLessThan(atMid);
+  });
+
+  it('covers more ground in the same time in later phases', () => {
+    // Exercises slideX itself rather than re-asserting the BOSS_PHASES table
+    // (which the phase-table tests already cover): a shorter period must
+    // translate into more distance travelled from the turn in equal time.
+    const travelled = (phase: 1 | 2 | 3) => Math.abs(slideX(400, phase, minX, maxX) - minX);
+    expect(travelled(2)).toBeGreaterThan(travelled(1));
+    expect(travelled(3)).toBeGreaterThan(travelled(2));
+  });
+});
+
+describe('arrivalY', () => {
+  it('starts off the top of the screen', () => {
+    expect(arrivalY(0)).toBe(BOSS_SPAWN_Y);
+  });
+
+  it('ends on station', () => {
+    expect(arrivalY(1)).toBeCloseTo(BOSS_STATION_Y, 5);
+  });
+
+  it('clamps outside 0..1 rather than overshooting', () => {
+    expect(arrivalY(-1)).toBe(BOSS_SPAWN_Y);
+    expect(arrivalY(4)).toBeCloseTo(BOSS_STATION_Y, 5);
+  });
+
+  it('descends monotonically', () => {
+    let previous = arrivalY(0);
+    for (let t = 0.05; t <= 1; t += 0.05) {
+      const y = arrivalY(t);
+      expect(y).toBeGreaterThanOrEqual(previous);
+      previous = y;
+    }
+  });
+});
+
+describe('bossPlayerFloor', () => {
+  it('sits below the hull, so there is no safe pocket above the boss', () => {
+    // The invariant the whole fight depends on. Without it the player parks
+    // above the hull, out of reach of downward fans, and the fight is free.
+    const floor = bossPlayerFloor(40, 18);
+    expect(floor - 40 / 2).toBeGreaterThanOrEqual(bossHullBottom());
+  });
+
+  it('matches the design doc for the real ship', () => {
+    expect(bossHullBottom()).toBe(260);
+    expect(bossPlayerFloor(40, 18)).toBe(298);
+  });
+
+  it('still leaves the player most of the screen', () => {
+    expect(bossPlayerFloor(40, 18)).toBeLessThan(932 * 0.35);
+  });
+});
+
+describe('playerFloorForHull', () => {
+  it('agrees with bossPlayerFloor once the hull is on station', () => {
+    expect(playerFloorForHull(BOSS_STATION_Y, 40, 18)).toBe(bossPlayerFloor(40, 18));
+  });
+
+  it('never lets the descending hull overlap the ship', () => {
+    // The regression this function exists for. The hull descends on a
+    // quadratic ease-out; a floor that interpolated linearly from
+    // PLAYER_MIN_Y to 298 fell BEHIND the hull for t in [0.55, 0.85] and
+    // overlapped the ship by up to 9.6px — the boss's entrance stealing a
+    // heart the player could do nothing about. Deriving the floor from the
+    // hull's live position makes the overlap impossible by construction,
+    // whatever easing the descent later uses.
+    for (let step = 0; step <= 100; step += 1) {
+      const t = step / 100;
+      const hullY = arrivalY(t);
+      const shipTop = Math.max(110, playerFloorForHull(hullY, 40, 18)) - 40 / 2;
+      expect(shipTop).toBeGreaterThanOrEqual(hullY + 120 / 2);
+    }
   });
 });

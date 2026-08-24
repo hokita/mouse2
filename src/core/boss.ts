@@ -84,3 +84,72 @@ export function phaseAt(hp: number, maxHp: number = BOSS_MAX_HP): BossPhase {
   }
   return 3;
 }
+
+/** How far the hull may slide with a margin held at each screen edge. */
+export function slideBounds(screenWidth: number): { minX: number; maxX: number } {
+  return {
+    minX: BOSS_WIDTH / 2 + BOSS_EDGE_MARGIN,
+    maxX: screenWidth - BOSS_WIDTH / 2 - BOSS_EDGE_MARGIN,
+  };
+}
+
+/**
+ * Hull centre x at `elapsedMs` into the fight.
+ *
+ * A cosine ease rather than a triangle wave: the hull slows visibly into each
+ * turn, which is what lets a child read where it is going. A linear slide of
+ * a 230px body reads as a ping-pong ball.
+ */
+export function slideX(elapsedMs: number, phase: BossPhase, minX: number, maxX: number): number {
+  const period = BOSS_PHASES[phase].slidePeriodMs;
+  const t = (elapsedMs % period) / period;
+  const eased = (1 - Math.cos(2 * Math.PI * t)) / 2;
+  return minX + (maxX - minX) * eased;
+}
+
+/** Hull centre y during the descent, `t` being progress clamped to 0..1. */
+export function arrivalY(t: number): number {
+  const clamped = Math.min(1, Math.max(0, t));
+  // Ease-out: drops in fast, settles onto station rather than snapping.
+  const eased = 1 - (1 - clamped) ** 2;
+  return BOSS_SPAWN_Y + (BOSS_STATION_Y - BOSS_SPAWN_Y) * eased;
+}
+
+/** Bottom edge of the hull once the boss is on station. */
+export function bossHullBottom(): number {
+  return BOSS_STATION_Y + BOSS_HEIGHT / 2;
+}
+
+/**
+ * The ship's floor for a hull whose centre is at `hullCenterY`.
+ *
+ * Derived from the hull's live position rather than interpolated
+ * independently. A floor that eased linearly from PLAYER_MIN_Y to the
+ * on-station value fell behind the quadratic descent for t in [0.55, 0.85]
+ * and let the hull overlap the ship by up to 9.6px — the boss's entrance
+ * taking a heart the player could not avoid. Tracking the hull makes that
+ * impossible by construction, whatever easing the descent uses.
+ *
+ * Callers clamp the result up to PLAYER_MIN_Y: while the hull is still off
+ * the top of the screen this returns a value above it, and the ship should
+ * keep its ordinary range until the boss actually needs the room.
+ */
+export function playerFloorForHull(
+  hullCenterY: number,
+  playerSize: number,
+  clearance: number
+): number {
+  return hullCenterY + BOSS_HEIGHT / 2 + playerSize / 2 + clearance;
+}
+
+/**
+ * The ship's floor once the boss is on station.
+ *
+ * PLAYER_MIN_Y (110) would leave a pocket between the HUD and the hull's top
+ * edge where the player could park out of reach of every downward fan, which
+ * would make the fight free. Pushing the floor below the hull removes it. The
+ * ship keeps y 298-912 of a 932px screen, which is ample.
+ */
+export function bossPlayerFloor(playerSize: number, clearance: number): number {
+  return playerFloorForHull(BOSS_STATION_Y, playerSize, clearance);
+}
