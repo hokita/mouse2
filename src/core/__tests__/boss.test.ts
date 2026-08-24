@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { spawnRange } from '../difficulty';
 import {
   BOSS_MAX_HP,
+  BOSS_TIME_MS,
   BOSS_PHASES,
   BOSS_SPAWN_Y,
   BOSS_STATION_Y,
@@ -19,15 +21,14 @@ describe('phaseAt', () => {
     expect(phaseAt(BOSS_MAX_HP)).toBe(1);
   });
 
-  it('splits the bar into three equal runs of 15 hits', () => {
-    // The table in the design doc: 45-31, 30-16, 15-0. Asserted at the
-    // boundaries rather than the middles, because the boundaries are where
-    // an off-by-one silently turns one phase into 14 hits and its neighbour
-    // into 16.
-    expect(phaseAt(31)).toBe(1);
-    expect(phaseAt(30)).toBe(2);
-    expect(phaseAt(16)).toBe(2);
-    expect(phaseAt(15)).toBe(3);
+  it('splits the bar into three equal runs of 30 hits', () => {
+    // 90-61, 60-31, 30-0. Asserted at the boundaries rather than the
+    // middles, because the boundaries are where an off-by-one silently turns
+    // one phase into 29 hits and its neighbour into 31.
+    expect(phaseAt(61)).toBe(1);
+    expect(phaseAt(60)).toBe(2);
+    expect(phaseAt(31)).toBe(2);
+    expect(phaseAt(30)).toBe(3);
     expect(phaseAt(1)).toBe(3);
   });
 
@@ -43,6 +44,19 @@ describe('phaseAt', () => {
 
   it('treats a dead boss as phase 3', () => {
     expect(phaseAt(0)).toBe(3);
+  });
+});
+
+describe('BOSS_TIME_MS', () => {
+  it('does not arrive before the field has reached full pressure', () => {
+    // The fight is meant to be the run's last escalation, so the spawn ramp
+    // has to have bottomed out by the time the boss is due. Comparing the
+    // range against a later one pins that relationship to difficulty.ts
+    // rather than to a hardcoded ramp length.
+    const atBoss = spawnRange(BOSS_TIME_MS);
+    const later = spawnRange(BOSS_TIME_MS + 10_000);
+    expect(atBoss.min).toBeCloseTo(later.min, 5);
+    expect(atBoss.max).toBeCloseTo(later.max, 5);
   });
 });
 

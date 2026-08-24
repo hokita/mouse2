@@ -3,7 +3,7 @@ import { ENEMY_HEIGHT, enemiesOnScreen, enemyLifetimeMs } from '../field';
 
 describe('enemyLifetimeMs', () => {
   it('covers the screen plus a body height either side', () => {
-    // 932 + 2 * 83.33 = 1098.67px at 90px/s.
+    // 932 + 2 * 70 = 1072px at 90px/s.
     expect(enemyLifetimeMs()).toBeCloseTo(((932 + 2 * ENEMY_HEIGHT) / 90) * 1000, 5);
   });
 

@@ -5,12 +5,12 @@
 // seconds on screen, so population is roughly lifetime / interval. At the
 // old 60px/s fall speed a 400-700ms floor meant ~33 enemies alive at once,
 // covering nearly 40% of the screen — a wall rather than a difficulty. The
-// faster fall (90px/s) cuts each enemy's life to ~12.2s, which is what makes
+// faster fall (90px/s) cuts each enemy's life to ~11.9s, which is what makes
 // these intervals sane:
 //
-//   opening 1100-1700ms -> ~8.7 enemies alive, but falling 50% faster than
+//   opening 1100-1700ms -> ~8.5 enemies alive, but falling 50% faster than
 //                          before, so the run is harder from the first second
-//   floor    700-1000ms -> ~14.4 alive, dense but with gaps a child can read
+//   floor    700-1000ms -> ~14.0 alive, dense but with gaps a child can read
 //
 // The opening deliberately does NOT match the old rate: a run that a small
 // child ends in 30-60s has to be harder immediately, not only in a minute's
