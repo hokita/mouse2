@@ -7,6 +7,7 @@ import type { SpawnerState } from '../core/spawner';
 import { spawnRange } from '../core/difficulty';
 import {
   BOSS_CLEAR_FALL_MULTIPLIER,
+  BOSS_KILL_POINTS,
   BOSS_TIME_MS,
   bossPlayerFloor,
   playerFloorForHull,
@@ -125,7 +126,7 @@ const ENEMY_BULLET_SIZE = 10;
 const STARTING_LIVES = 3;
 const INVINCIBILITY_MS = 1500;
 
-type GameState = 'playing' | 'gameOver';
+type GameState = 'playing' | 'gameOver' | 'won';
 
 /**
  * Where in the run we are, kept separate from GameState (how it ended) so
@@ -261,7 +262,7 @@ export class GameScene extends Phaser.Scene {
       // it is up. Phaser will not hit-test them while the overlay is hidden
       // anyway, so this is a statement of intent, not the thing holding the
       // line.
-      isArmed: () => this.state === 'gameOver' && this.overlayShown,
+      isArmed: () => this.state !== 'playing' && this.overlayShown,
     });
 
     this.cameras.main.fadeIn(280, 0, 0, 0);
@@ -768,7 +769,48 @@ export class GameScene extends Phaser.Scene {
   }
 
   private triggerWin(): void {
-    this.state = 'gameOver';
+    this.state = 'won';
+    this.runPhase = 'boss';
+    fadeOutMusic(this);
+    playSfx(this, 'explode');
+    playSfx(this, 'milestone');
+
+    this.scoreState = addPoints(this.scoreState, BOSS_KILL_POINTS);
+    this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+
+    const boss = this.boss;
+    if (boss) {
+      const { x, y } = bossCenter(boss);
+      const burst = this.add.particles(x, y, TEX.spark, {
+        speed: { min: 120, max: 460 },
+        lifespan: { min: 400, max: 900 },
+        scale: { start: 1.1, end: 0 },
+        alpha: { start: 1, end: 0 },
+        tint: [PALETTE.rose, PALETTE.amber, PALETTE.text],
+        blendMode: 'ADD',
+        emitting: false,
+      });
+      burst.setDepth(DEPTH.effects);
+      burst.explode(48);
+      this.time.delayedCall(1200, () => burst.destroy());
+      destroyBoss(boss);
+      this.boss = null;
+    }
+
+    this.cameras.main.shake(420, 0.016);
+    this.cameras.main.flash(260, 255, 95, 126);
+    // The ship survives and the floor is released, so the win reads as the
+    // player being left alone on a clear screen.
+    this.playerFloor = PLAYER_MIN_Y;
+
+    // Let the explosion read before the card covers it, as GAME OVER does.
+    this.time.delayedCall(700, () => {
+      if (this.state !== 'won') {
+        return;
+      }
+      this.overlayShown = true;
+      this.overlay.show('YOU WIN', 'Score', `${getScoreValue(this.scoreState)}`);
+    });
   }
 
   private triggerGameOver(): void {
