@@ -85,7 +85,11 @@ already learned to read, and spawn from the hull's bottom edge at y = 260.
 The fans reuse `fanVelocities()` from `core/spread.ts` unchanged. Only phase
 3 aims: one shot per 2200 ms on the vector to the player's current position.
 
-Ramming the hull costs a heart, through the same swept test enemies use.
+The ship's floor keeps it clear of the hull by 18px at all times (see "The
+player's space during the fight" below), so ramming the hull cannot occur.
+The swept test enemies use remains wired to the hull anyway, as a guard: if a
+future change ever narrows that clearance, contact costs a heart immediately
+instead of silently passing through.
 
 ### The player's space during the fight
 

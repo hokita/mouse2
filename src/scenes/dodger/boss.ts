@@ -21,6 +21,7 @@ import {
   slideX,
 } from '../../core/boss';
 import type { BossPhase } from '../../core/boss';
+import { ENEMY_BULLET_SPEED } from '../../core/field';
 
 // The final boss's Phaser side: the hull, its halo, its health bar, and the
 // decision of when to fire. GameScene never touches these objects directly.
@@ -29,9 +30,6 @@ import type { BossPhase } from '../../core/boss';
 // scene turns them into ordinary entries in its enemyBullets array, which
 // already carries an arbitrary heading and already has a swept player
 // collision pass and a four-edge cull. Boss bullets are enemy bullets.
-
-/** Speed matches ENEMY_BULLET_SPEED — the speed the player already reads. */
-const BULLET_SPEED = 150;
 
 const BAR_MARGIN = 18;
 const BAR_Y = 82;
@@ -109,9 +107,15 @@ export function spawnBoss(scene: Phaser.Scene): Boss {
 
   const phase1 = BOSS_PHASES[1];
   // Phase 3 is the only phase that aims, so its interval is the only one this
-  // spawner ever needs — derived from the tuning table rather than a second
-  // literal, so retuning BOSS_PHASES[3] can't silently desync from it.
-  const aimedIntervalMs = BOSS_PHASES[3].aimedIntervalMs ?? 2200;
+  // spawner ever needs — read from the tuning table rather than a second
+  // literal, so retuning BOSS_PHASES[3] can't silently desync from it. The
+  // table defines phase 3 to aim, so a null here means the table itself is
+  // broken; fail loudly rather than silently falling back to a guessed
+  // interval that could drift from what the table says.
+  const aimedIntervalMs = BOSS_PHASES[3].aimedIntervalMs;
+  if (aimedIntervalMs === null) {
+    throw new Error('BOSS_PHASES[3].aimedIntervalMs must be set — phase 3 is defined to aim.');
+  }
   return {
     hull,
     halo,
@@ -149,7 +153,6 @@ export function bossRect(boss: Boss): Rect {
  * player gets to watch, not an ambush.
  */
 export function updateBoss(
-  _scene: Phaser.Scene,
   boss: Boss,
   dtMs: number,
   targetX: number,
@@ -176,7 +179,7 @@ export function updateBoss(
   const fire = tickSpawner(boss.fireState, dtMs);
   boss.fireState = fire.state;
   if (fire.shouldSpawn) {
-    for (const { vx, vy } of fanVelocities(spec.fanCount, spec.fanSpreadRadians, BULLET_SPEED)) {
+    for (const { vx, vy } of fanVelocities(spec.fanCount, spec.fanSpreadRadians, ENEMY_BULLET_SPEED)) {
       shots.push({ x: boss.hull.x, y: muzzleY, vx, vy });
     }
   }
@@ -193,8 +196,8 @@ export function updateBoss(
       shots.push({
         x: boss.hull.x,
         y: muzzleY,
-        vx: (dx / length) * BULLET_SPEED,
-        vy: (dy / length) * BULLET_SPEED,
+        vx: (dx / length) * ENEMY_BULLET_SPEED,
+        vy: (dy / length) * ENEMY_BULLET_SPEED,
       });
     }
   }
@@ -213,6 +216,14 @@ export function damageBoss(scene: Phaser.Scene, boss: Boss, amount: number): boo
 
   const nextPhase = phaseAt(boss.hp);
   if (nextPhase !== boss.phase) {
+    // Rebase the slide clock so the hull keeps its position through the
+    // change. slideX derives its phase of the sweep from elapsedMs modulo the
+    // period, so swapping in a shorter period without this makes a 230px body
+    // jump up to the full width of its travel — on the exact frame the flash
+    // and shake pull the child's eye to it.
+    const oldPeriod = BOSS_PHASES[boss.phase].slidePeriodMs;
+    const newPeriod = BOSS_PHASES[nextPhase].slidePeriodMs;
+    boss.elapsedMs = newPeriod * ((boss.elapsedMs % oldPeriod) / oldPeriod);
     boss.phase = nextPhase;
     const spec = BOSS_PHASES[nextPhase];
     boss.fireState = retuneSpawner(boss.fireState, spec.fireIntervalMs, spec.fireIntervalMs);

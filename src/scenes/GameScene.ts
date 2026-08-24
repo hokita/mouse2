@@ -33,6 +33,7 @@ import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE } from '../ui/theme';
 import {
+  ENEMY_BULLET_SPEED,
   ENEMY_FALL_SPEED,
   ENEMY_HEIGHT,
   ENEMY_SCALE,
@@ -115,13 +116,18 @@ const TANK_SPREAD_RADIANS = Phaser.Math.DegToRad(80);
 // has more margin, not less. The kill check sweeps both sides' frame motion
 // anyway, and the player's own path is swept exactly (core/sweptRect), so
 // nothing can tunnel through a collision target.
+//
+// The boss doesn't reopen this arithmetic: its hull is 120px tall, taller
+// than a tank, and stationary once on station rather than falling toward the
+// bullet — so the closing speed is the bullet's alone and the combined
+// height is larger. Both changes only add margin over the case above; a
+// reader auditing the cap does not need to redo the sums for the boss.
 const MAX_DELTA_MS = 100;
 const PLAYER_FIRE_INTERVAL_MS = 400;
 const PLAYER_BULLET_SPEED = 500;
 const PLAYER_BULLET_WIDTH = 8;
 const PLAYER_BULLET_HEIGHT = 16;
 const KILL_POINTS = 10;
-const ENEMY_BULLET_SPEED = 150;
 const ENEMY_BULLET_SIZE = 10;
 const STARTING_LIVES = 3;
 const INVINCIBILITY_MS = 1500;
@@ -380,7 +386,7 @@ export class GameScene extends Phaser.Scene {
     // historical path could consume a heart the player never earned.
     const firedThisFrame: EnemyBullet[] = [];
     if (this.boss) {
-      const shots = updateBoss(this, this.boss, safeDelta, this.player.x, this.player.y);
+      const shots = updateBoss(this.boss, safeDelta, this.player.x, this.player.y);
       if (this.runPhase === 'incoming') {
         // The descending hull pushes the ship out of its space rather than
         // teleporting it: a hard switch would snap the ship up to 188px.
@@ -486,11 +492,16 @@ export class GameScene extends Phaser.Scene {
         }
         this.explodeEnemy(target);
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
-        this.scoreState = addPoints(
-          this.scoreState,
-          target.kind === 'tank' ? TANK_KILL_POINTS : KILL_POINTS
-        );
-        this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+        // Enemies leaving during the clearing sweep are worth no points on
+        // the way out — see the design doc. They still die and explode, so
+        // the sweep reads the same; only the score and pill are withheld.
+        if (this.runPhase !== 'clearing') {
+          this.scoreState = addPoints(
+            this.scoreState,
+            target.kind === 'tank' ? TANK_KILL_POINTS : KILL_POINTS
+          );
+          this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+        }
         return false;
       }
       // The boss is checked after ordinary enemies so a bullet never damages
@@ -563,15 +574,21 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Ramming the hull costs a heart. Tested against the player's swept path
-    // as the enemies are, so a fast drag into the boss cannot tunnel through
-    // it. Gated on the 'boss' phase, not on the boss merely existing:
-    // playerRect is captured, once, before the arrival push moves the ship —
-    // so during the descent it still holds the pre-push position the hull
-    // may overlap. Charging a heart for an overlap the push has already
-    // resolved would take a life the player could not have avoided. The hull
-    // only becomes solid once the boss is on station and the ship's floor is
-    // fixed.
+    // This check is unreachable while the fight's geometry holds: once on
+    // station the hull spans y 140-260 and PLAYER_BOSS_MIN_Y (298) is derived
+    // from it with an 18px clearance, so the player rect always spans y
+    // 278-318 — a gap movingRectHitsRect can never close. That gap is
+    // deliberate (see PLAYER_BOSS_MIN_Y's comment: it is what stops the
+    // player parking in the pocket above the hull, not a bug to fix by
+    // shrinking it). This check stays anyway as a defensive guard, so that if
+    // a future change nudges the hull's station or the floor and reopens the
+    // possibility of contact, ramming costs a heart immediately rather than
+    // silently doing nothing while the comment still claims it works. Gated
+    // on the 'boss' phase, not on the boss merely existing: playerRect is
+    // captured, once, before the arrival push moves the ship — so during the
+    // descent it still holds the pre-push position the hull may overlap, and
+    // charging a heart for an overlap the push has already resolved would
+    // take a life the player could not have avoided.
     if (!collided && this.boss && this.runPhase === 'boss') {
       collided = movingRectHitsRect(prevPlayerRect, playerRect, bossRect(this.boss));
     }
@@ -775,7 +792,6 @@ export class GameScene extends Phaser.Scene {
 
   private triggerWin(): void {
     this.state = 'won';
-    this.runPhase = 'boss';
     fadeOutMusic(this);
     playSfx(this, 'explode');
     playSfx(this, 'milestone');

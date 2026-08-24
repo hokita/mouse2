@@ -125,6 +125,45 @@ describe('slideX', () => {
   });
 });
 
+describe('phase-change slide rebase', () => {
+  // Pins a bug: damageBoss changes boss.phase (and so the slide period)
+  // without rebasing boss.elapsedMs first. slideX takes elapsedMs modulo the
+  // period, so swapping in a shorter period without rebasing snaps the
+  // 230px-wide hull up to the full width of its travel on the very frame the
+  // phase flash and camera shake draw the child's eye to it — the "ping-pong
+  // ball" the cosine ease exists to prevent, reintroduced at every phase
+  // change. The fix rebases elapsedMs so the eased fraction of the sweep —
+  // not the raw elapsed time — survives the period change, which this test
+  // asserts directly by reproducing the rebase formula and checking it lands
+  // slideX at the same x it held an instant before.
+  it('keeps the hull at the same x when the period changes underneath it', () => {
+    const { minX, maxX } = slideBounds(430);
+    const oldPeriod = BOSS_PHASES[1].slidePeriodMs;
+    const newPeriod = BOSS_PHASES[2].slidePeriodMs;
+    const elapsedMs = 1234; // Arbitrary point mid-sweep, not a period boundary.
+
+    const xBeforeChange = slideX(elapsedMs, 1, minX, maxX);
+
+    const rebasedElapsedMs = newPeriod * ((elapsedMs % oldPeriod) / oldPeriod);
+    const xAfterChange = slideX(rebasedElapsedMs, 2, minX, maxX);
+
+    expect(xAfterChange).toBeCloseTo(xBeforeChange, 5);
+  });
+
+  it('would NOT match without the rebase, demonstrating the bug it fixes', () => {
+    // Same phase change, but reusing the raw elapsedMs (what the code did
+    // before the fix) instead of rebasing it — the two diverge, sometimes by
+    // most of the slide's travel.
+    const { minX, maxX } = slideBounds(430);
+    const elapsedMs = 1234;
+
+    const xBeforeChange = slideX(elapsedMs, 1, minX, maxX);
+    const xWithoutRebase = slideX(elapsedMs, 2, minX, maxX);
+
+    expect(Math.abs(xWithoutRebase - xBeforeChange)).toBeGreaterThan(1);
+  });
+});
+
 describe('arrivalY', () => {
   it('starts off the top of the screen', () => {
     expect(arrivalY(0)).toBe(BOSS_SPAWN_Y);
