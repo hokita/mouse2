@@ -122,7 +122,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.card = createNodeCard(this, BATTLE_ACCENT);
 
-    playMusic(this, 'reel');
+    playMusic(this, 'battle');
 
     this.refresh();
     this.time.delayedCall(420, () => this.beginTurn());
@@ -309,9 +309,9 @@ export class BattleScene extends Phaser.Scene {
         );
         if (weak) {
           this.cameras.main.shake(180, 0.006);
-          playSfx(this, 'explode');
+          playSfx(this, 'weak');
         } else {
-          playSfx(this, target.side === 'party' ? 'hurt' : 'shoot');
+          playSfx(this, target.side === 'party' ? 'hurt' : 'slash');
         }
         this.flash(event.target);
         this.refresh();
@@ -320,14 +320,14 @@ export class BattleScene extends Phaser.Scene {
       case 'heal': {
         const { x, y } = this.positionOf(event.target);
         this.floatNumber(x, y, `${event.amount}`, PALETTE.mint, 28);
-        playSfx(this, 'catch');
+        playSfx(this, 'heal');
         this.refresh();
         break;
       }
       case 'mp': {
         const { x, y } = this.positionOf(event.target);
         this.floatNumber(x, y, `${event.amount}`, PALETTE.cyan, 24);
-        playSfx(this, 'catch');
+        playSfx(this, 'heal');
         this.refresh();
         break;
       }
@@ -335,19 +335,19 @@ export class BattleScene extends Phaser.Scene {
         const target = this.find(event.target);
         if (target) {
           this.floatPip(target, event.status);
-          playSfx(this, 'rare');
+          playSfx(this, 'afflict');
         }
         this.refresh();
         break;
       }
       case 'cured':
-        playSfx(this, 'plop');
+        playSfx(this, 'heal');
         this.refresh();
         break;
       case 'guard': {
         const { x, y } = this.positionOf(event.actor);
         this.floatNumber(x, y, '', PALETTE.cyan, 0);
-        playSfx(this, 'tap');
+        playSfx(this, 'guard');
         break;
       }
       case 'down':
@@ -356,6 +356,11 @@ export class BattleScene extends Phaser.Scene {
         }
         playSfx(this, 'gameover');
         this.refresh();
+        break;
+      case 'act':
+        if (event.skill && SKILLS[event.skill].mpCost > 0) {
+          playSfx(this, 'cast');
+        }
         break;
       case 'asleep':
         this.refresh();

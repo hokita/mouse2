@@ -121,7 +121,7 @@ export class QuestScene extends Phaser.Scene {
     });
     createSoundButton(this, { accent: BATTLE_ACCENT, depth: DEPTH.overlay + 1 });
 
-    playMusic(this, 'menu');
+    playMusic(this, 'quest');
 
     this.drawMap();
     this.drawParty();
@@ -319,7 +319,7 @@ export class QuestScene extends Phaser.Scene {
         break;
       }
       case 'rest':
-        playSfx(this, 'catch');
+        playSfx(this, 'heal');
         this.run = takeRest(this.run);
         this.card.showRest(() => this.afterCard());
         break;
