@@ -593,7 +593,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.livesState = tickLives(this.livesState, safeDelta);
-    if (collided || shotByEnemy) {
+    // triggerWin() may already have fired earlier this same frame, in the
+    // player-bullet pass above: a boss bullet already in flight can still
+    // land a hit on the very tick the killing blow lands. The kill is
+    // resolved first in frame order, so a hit that arrives after it must not
+    // overwrite the win with a game over.
+    if ((collided || shotByEnemy) && this.state === 'playing') {
       const result = hit(this.livesState, INVINCIBILITY_MS);
       this.livesState = result.state;
       if (result.tookHit) {
