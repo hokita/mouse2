@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { Element } from '../core/rpg/elements';
 import type { EnemyShape } from '../core/rpg/enemies';
-import type { HeroSigil } from '../core/rpg/party';
+import type { HeroId } from '../core/rpg/party';
 import type { NodeKind } from '../core/rpg/nodeMap';
 import type { SkillGlyph } from '../core/rpg/skills';
 import type { ItemGlyph } from '../core/rpg/items';
@@ -18,7 +18,7 @@ import { define, fillPolygon } from './textures';
 //   SHAPE says what a thing does. COLOUR says which element it belongs to.
 //
 // So every glyph here is drawn in near-white and tinted at use, and the same
-// `burst` shape serves fire, ice and spark. The player learns ten shapes once
+// `burst` shape serves fire, water and leaf. The player learns ten shapes once
 // instead of twenty-five names never.
 //
 // Nothing here is an emoji, and that is not a stylistic preference. A speaker
@@ -32,8 +32,14 @@ export const GLYPH = 46;
 export const PIP = 20;
 /** The mark that names an element. */
 export const MARK = 22;
-/** A hero's whole identity, drawn on their portrait. */
-export const SIGIL = 34;
+/**
+ * A hero's face, drawn on their portrait. Their whole identity.
+ *
+ * The source canvas is far larger than any place the face is used (38px on
+ * the party bar, 20px on the map strip). Faces carry interior detail that a
+ * sigil did not, and detail upscaled from a 34px canvas came back soft.
+ */
+export const FACE = 96;
 /** Monsters. Drawn at the size they are tapped at. */
 export const FOE = 104;
 /** Nodes on the campaign map. */
@@ -70,10 +76,10 @@ export function elementColor(element: Element): number {
   switch (element) {
     case 'fire':
       return PALETTE.amber;
-    case 'ice':
+    case 'water':
       return PALETTE.cyan;
-    case 'spark':
-      return PALETTE.violet;
+    case 'leaf':
+      return PALETTE.lime;
     default:
       return PALETTE.muted;
   }
@@ -126,10 +132,14 @@ function line(
 /**
  * The mark that stands for an element, in shape as well as colour.
  *
- * Fire points up, ice points down, spark is a lozenge on its corner. Carrying
+ * A flame points up, a droplet hangs down, a leaf sits on its stem. Carrying
  * the meaning in the silhouette too is what keeps the game playable for a
- * player who cannot separate amber from violet — with no words anywhere, a
+ * player who cannot separate amber from lime — with no words anywhere, a
  * colour-only code would simply lock them out.
+ *
+ * The leaf is drawn with a stem rather than as a bare lozenge, which is the
+ * one thing separating it from the antidote's leaf in the item tray. Two
+ * glyphs that differ only in size are, to a player, one glyph.
  */
 export function ensureElementMark(scene: Phaser.Scene, element: Element): string {
   return glyph(scene, `sigil-mark-${element}`, MARK, (g, s) => {
@@ -137,10 +147,14 @@ export function ensureElementMark(scene: Phaser.Scene, element: Element): string
     const r = s * 0.38;
     if (element === 'fire') {
       poly(g, [[c, c - r], [c + r, c + r * 0.8], [c - r, c + r * 0.8]]);
-    } else if (element === 'ice') {
-      poly(g, [[c, c + r], [c + r, c - r * 0.8], [c - r, c - r * 0.8]]);
-    } else if (element === 'spark') {
-      poly(g, [[c, c - r], [c + r * 0.78, c], [c, c + r], [c - r * 0.78, c]]);
+    } else if (element === 'water') {
+      // A droplet: pointed at the top, heavy and round at the bottom.
+      poly(g, [[c, c - r], [c + r * 0.72, c + r * 0.18], [c, c + r * 0.5], [c - r * 0.72, c + r * 0.18]]);
+      g.fillStyle(INK, 1);
+      g.fillCircle(c, c + r * 0.3, r * 0.62);
+    } else if (element === 'leaf') {
+      poly(g, [[c, c - r], [c + r * 0.8, c - r * 0.05], [c, c + r * 0.7], [c - r * 0.8, c - r * 0.05]]);
+      line(g, [[c, c + r], [c, c - r * 0.5]], s * 0.075);
     } else {
       g.fillStyle(INK, 1);
       g.fillCircle(c, c, r * 0.72);
@@ -287,19 +301,61 @@ export type CommandGlyph = 'attack' | 'skill' | 'guard' | 'item';
 /**
  * The four buttons along the bottom. These four have to be legible cold, with
  * nothing else on screen to explain them, so each borrows a shape the player
- * has already met somewhere: a sword, a spark, a raised shield, a flask.
+ * has already met somewhere: a sword, a rod, a raised shield, a flask.
  */
 export function ensureCommandGlyph(scene: Phaser.Scene, name: CommandGlyph): string {
   switch (name) {
     case 'attack':
       return glyph(scene, QUEST_TEX.cmdAttack, GLYPH, SKILL_SHAPES.blade);
     case 'skill':
-      return glyph(scene, QUEST_TEX.cmdSkill, GLYPH, SKILL_SHAPES.burst);
+      return ensureRodGlyph(scene);
     case 'guard':
       return ensureGuardGlyph(scene);
     default:
       return ensureItemCommandGlyph(scene);
   }
+}
+
+/**
+ * The magic rod: the SKILL command.
+ *
+ * It used to be the `burst` shape, which is the same star the elemental bolts
+ * wear. That made the button look like one particular spell rather than the
+ * door to all of them — and next to a blade, a star reads as "lightning",
+ * not "magic". A rod is held, like the sword beside it, so the two buttons
+ * finally answer the same question: what is this character swinging?
+ */
+function ensureRodGlyph(scene: Phaser.Scene): string {
+  return glyph(scene, QUEST_TEX.cmdSkill, GLYPH, (g, s) => {
+    const c = s / 2;
+    const hx = c - s * 0.15;
+    const hy = s * 0.27;
+
+    // A straight, thick shaft leaning the opposite way to the blade, so the
+    // two weapon buttons cannot be swapped at a glance in the command row.
+    g.save();
+    g.translateCanvas(c, c);
+    g.rotateCanvas(Phaser.Math.DegToRad(20));
+    g.fillStyle(INK, 1);
+    g.fillRoundedRect(-s * 0.055, -s * 0.14, s * 0.11, s * 0.58, s * 0.055);
+    g.restore();
+
+    // The head is a bare orb with three sparks thrown off it. An earlier
+    // version drew a ring around the orb and read as a magnifying glass —
+    // a closed curve on a stick is a lens to everyone who has used a phone.
+    g.fillStyle(INK, 1);
+    g.fillCircle(hx, hy, s * 0.155);
+    for (const [dx, dy] of [[-1, -0.75], [0.15, -1.15], [-1.15, 0.35]]) {
+      const px = hx + dx * s * 0.2;
+      const py = hy + dy * s * 0.2;
+      poly(g, [
+        [px, py - s * 0.062],
+        [px + s * 0.042, py],
+        [px, py + s * 0.062],
+        [px - s * 0.042, py],
+      ]);
+    }
+  });
 }
 
 function ensureItemCommandGlyph(scene: Phaser.Scene): string {
@@ -471,32 +527,122 @@ export function ensureBoonGlyph(scene: Phaser.Scene, name: BoonGlyph): string {
 
 // --- heroes ---------------------------------------------------------------
 
-const SIGIL_SHAPES: Record<HeroSigil, Draw> = {
-  diamond: (g, s) => {
+/**
+ * The three faces, and the only names the party has.
+ *
+ * These are read at about 29px on the party bar, in one flat tint, so the
+ * whole job is done by the outline: the daughter is widest at the top (two
+ * bunches), the father is a flat-bottomed square (a beard), and the mother is
+ * a tall vertical mass (long hair). Detail inside the head would be invisible
+ * at this size and is not attempted — the features are punched out in the
+ * backdrop colour so they survive being tinted.
+ *
+ * They replaced a diamond, a star and a cross. Abstract marks were learnable
+ * but never meant anything; a player could tell the three apart without ever
+ * having a thought about who they were.
+ */
+/**
+ * The three faces, and the only names the party has.
+ *
+ * These are the one exception to the rule that runs the rest of this file.
+ * Everywhere else a glyph is drawn in flat near-white and tinted at use, so
+ * that colour is free to mean element — amber burns, cyan drowns, lime grows.
+ * The portraits are painted instead, in skin and hair and eyes, and nothing
+ * tints them.
+ *
+ * That exception is bought, not free. A first pass drew all three as one flat
+ * colour with the features punched out, and they came back looking like a
+ * cloud, a monitor and a ghost: with a single ink there is no way to say
+ * "hair in front of a face", only "hole in a shape". Three colours per
+ * portrait is the least that buys a face which reads as one.
+ *
+ * The hair colours are chosen well clear of amber, cyan and lime. A hero
+ * whose hair matched an element would look like they were carrying it.
+ */
+const FACE_SHAPES: Record<HeroId, Draw> = {
+  // The daughter: two bunches, and the widest silhouette of the three.
+  daughter: (g, s) => {
     const c = s / 2;
-    poly(g, [[c, s * 0.06], [s * 0.94, c], [c, s * 0.94], [s * 0.06, c]]);
+    g.fillStyle(PALETTE.hairDaughter, 1);
+    g.fillCircle(s * 0.13, s * 0.33, s * 0.13);
+    g.fillCircle(s * 0.87, s * 0.33, s * 0.13);
+    g.fillCircle(c, s * 0.47, s * 0.35);
+
+    g.fillStyle(PALETTE.skin, 1);
+    g.fillEllipse(c, s * 0.56, s * 0.54, s * 0.58);
+
+    // A fringe cut straight across the brow. It is what stops the head
+    // reading as a bare ball, and it is the shape a child's hair has.
+    g.fillStyle(PALETTE.hairDaughter, 1);
+    g.fillRoundedRect(s * 0.21, s * 0.2, s * 0.58, s * 0.19, s * 0.06);
+    features(g, s, c, s * 0.56, s * 0.12);
   },
-  star: (g, s) => {
+
+  // The father: clean-shaven, short black hair, and the squarest jaw of the
+  // three. With no beard and no bunches, the jaw is the whole silhouette.
+  dad: (g, s) => {
     const c = s / 2;
-    const points: number[][] = [];
-    for (let i = 0; i < 12; i += 1) {
-      const a = Phaser.Math.DegToRad(-90 + i * 30);
-      const r = (i % 2 === 0 ? 0.46 : 0.2) * s;
-      points.push([c + Math.cos(a) * r, c + Math.sin(a) * r]);
-    }
-    poly(g, points);
+    // The crop is laid down first and the face drawn over it, so what is
+    // left showing is a crescent that follows the skull. Drawn the other way
+    // round it was a flat bar sitting on top of the head, and read as a hat.
+    g.fillStyle(PALETTE.hairDad, 1);
+    g.fillEllipse(c, s * 0.33, s * 0.62, s * 0.34);
+    // Sideburns, stopping at the temple.
+    g.fillRect(s * 0.2, s * 0.33, s * 0.07, s * 0.17);
+    g.fillRect(s * 0.73, s * 0.33, s * 0.07, s * 0.17);
+
+    g.fillStyle(PALETTE.skin, 1);
+    g.fillRoundedRect(s * 0.23, s * 0.27, s * 0.54, s * 0.58, s * 0.16);
+    features(g, s, c, s * 0.51, s * 0.12);
   },
-  cross: (g, s) => {
+
+  // The mother: the tallest of the three, with hair falling past the jaw on
+  // both sides.
+  mom: (g, s) => {
     const c = s / 2;
-    const arm = s * 0.15;
-    g.fillStyle(INK, 1);
-    g.fillRoundedRect(c - arm, s * 0.06, arm * 2, s * 0.88, arm * 0.5);
-    g.fillRoundedRect(s * 0.06, c - arm, s * 0.88, arm * 2, arm * 0.5);
+    // Drawn as a backing plus two side locks rather than one continuous
+    // shape. A single fall ran under the chin as well as beside it, which
+    // closed a loop around the face and read as a headscarf rather than hair.
+    g.fillStyle(PALETTE.hairMom, 1);
+    g.fillRoundedRect(s * 0.16, s * 0.3, s * 0.68, s * 0.5, s * 0.26);
+    g.fillRoundedRect(s * 0.16, s * 0.4, s * 0.18, s * 0.5, s * 0.09);
+    g.fillRoundedRect(s * 0.66, s * 0.4, s * 0.18, s * 0.5, s * 0.09);
+    g.fillCircle(c, s * 0.42, s * 0.34);
+
+    // The face is drawn over the backing and reaches below it, so the chin
+    // is skin and the hair is left at the sides where it belongs.
+    g.fillStyle(PALETTE.skin, 1);
+    g.fillEllipse(c, s * 0.52, s * 0.48, s * 0.58);
+
+    // No fringe. The hairline is simply where the face ends and the crown
+    // behind it begins — an earlier version drew a band across the brow and
+    // read as a headband, because a horizontal edge is the one thing hair
+    // never has.
+    features(g, s, c, s * 0.53, s * 0.11);
   },
 };
 
-export function ensureHeroSigil(scene: Phaser.Scene, sigil: HeroSigil): string {
-  return glyph(scene, `sigil-hero-${sigil}`, SIGIL, SIGIL_SHAPES[sigil]);
+/** Two eyes and a mouth, at the size everything else is measured from. */
+function features(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  cx: number,
+  cy: number,
+  spread: number
+): void {
+  g.fillStyle(PALETTE.feature, 1);
+  g.fillCircle(cx - spread, cy, s * 0.045);
+  g.fillCircle(cx + spread, cy, s * 0.045);
+  g.fillRoundedRect(cx - s * 0.07, cy + s * 0.13, s * 0.14, s * 0.035, s * 0.017);
+}
+
+/**
+ * Painted rather than tinted — callers must NOT `setTint` the result. Tinting
+ * a multi-colour texture multiplies every one of its colours at once, which
+ * turns a face into a single wash and undoes the whole reason it is painted.
+ */
+export function ensureHeroFace(scene: Phaser.Scene, id: HeroId): string {
+  return glyph(scene, `sigil-hero-${id}`, FACE, FACE_SHAPES[id]);
 }
 
 // --- statuses -------------------------------------------------------------

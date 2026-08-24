@@ -144,12 +144,12 @@ describe('finishBattle', () => {
     let battle = createBattle(state.party, ['blob'], createRng(1));
     battle = {
       ...battle,
-      combatants: battle.combatants.map((c) => (c.id === 'hero:caster' ? { ...c, hp: 4 } : c)),
+      combatants: battle.combatants.map((c) => (c.id === 'hero:mom' ? { ...c, hp: 4 } : c)),
     };
     const { run: after } = finishBattle(state, battle, ['blob']);
-    const caster = after.party.find((h) => h.id === 'caster')!;
-    expect(caster.hp).toBeLessThan(heroStats(caster).maxHp);
-    expect(caster.hp).toBeLessThan(state.party.find((h) => h.id === 'caster')!.hp);
+    const mom = after.party.find((h) => h.id === 'mom')!;
+    expect(mom.hp).toBeLessThan(heroStats(mom).maxHp);
+    expect(mom.hp).toBeLessThan(state.party.find((h) => h.id === 'mom')!.hp);
   });
 
   it('adds nothing to a wound but the level-up grant it earned', () => {
@@ -160,12 +160,12 @@ describe('finishBattle', () => {
     let battle = createBattle(state.party, ['blob'], createRng(1));
     battle = {
       ...battle,
-      combatants: battle.combatants.map((c) => (c.id === 'hero:caster' ? { ...c, hp: 4 } : c)),
+      combatants: battle.combatants.map((c) => (c.id === 'hero:mom' ? { ...c, hp: 4 } : c)),
     };
     const { run: after } = finishBattle(state, battle, ['blob']);
-    const caster = after.party.find((h) => h.id === 'caster')!;
-    expect(caster.level).toBe(2);
-    expect(caster.hp).toBe(4 + HEROES.caster.growth.maxHp);
+    const mom = after.party.find((h) => h.id === 'mom')!;
+    expect(mom.level).toBe(2);
+    expect(mom.hp).toBe(4 + HEROES.mom.growth.maxHp);
   });
 
   it('picks the fallen back up, but only just', () => {
@@ -174,14 +174,14 @@ describe('finishBattle', () => {
     battle = {
       ...battle,
       combatants: battle.combatants.map((c) =>
-        c.id === 'hero:vanguard' ? { ...c, hp: 0, statuses: [{ kind: 'poison', turns: 3 }] } : c
+        c.id === 'hero:dad' ? { ...c, hp: 0, statuses: [{ kind: 'poison', turns: 3 }] } : c
       ),
     };
     const { run: after } = finishBattle(state, battle, ['blob']);
-    const vanguard = after.party.find((h) => h.id === 'vanguard')!;
-    expect(vanguard.hp).toBeGreaterThan(0);
-    expect(vanguard.hp).toBeLessThan(heroStats(vanguard).maxHp);
-    expect(vanguard.statuses).toEqual([]);
+    const dad = after.party.find((h) => h.id === 'dad')!;
+    expect(dad.hp).toBeGreaterThan(0);
+    expect(dad.hp).toBeLessThan(heroStats(dad).maxHp);
+    expect(dad.statuses).toEqual([]);
   });
 
   it('reports the level ups so the scene can celebrate them', () => {

@@ -5,7 +5,7 @@ import type { BattleState } from '../core/rpg/battle';
 import type { EnemyId } from '../core/rpg/enemies';
 import { MAP_ROWS, nodeAt } from '../core/rpg/nodeMap';
 import type { MapNode } from '../core/rpg/nodeMap';
-import { HEROES, heroStats } from '../core/rpg/party';
+import { heroStats } from '../core/rpg/party';
 import { createRng } from '../core/rpg/rng';
 import { SKILLS } from '../core/rpg/skills';
 import {
@@ -24,15 +24,14 @@ import {
   travelTo,
 } from '../core/rpg/run';
 import type { LevelUp, RunState } from '../core/rpg/run';
-import { PALETTE, displayStyle } from '../ui/theme';
+import { PALETTE, displayStyle, shade } from '../ui/theme';
 import { DEPTH, containerHitArea, createBackButton, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import {
   NODE,
-  SIGIL,
   elementColor,
   ensureElementMark,
-  ensureHeroSigil,
+  ensureHeroFace,
   ensureNodeGlyph,
   ensureSkillGlyph,
   ensureUiGlyph,
@@ -276,11 +275,21 @@ export class QuestScene extends Phaser.Scene {
       const stats = heroStats(hero);
       const fraction = Math.max(0, hero.hp / stats.maxHp);
 
+      // The same lifted plate the party bar uses. Without it a black-haired
+      // portrait on the map backdrop is a face with no edge to it.
+      const plate = this.add.graphics();
+      plate.fillStyle(shade(PALETTE.surface, 0.18), 1);
+      plate.fillCircle(x - 44, 0, 15);
+      plate.lineStyle(1.2, PALETTE.surfaceEdge, 0.9);
+      plate.strokeCircle(x - 44, 0, 15);
+      plate.setAlpha(hero.hp > 0 ? 1 : 0.35);
+
+      // A downed hero is dimmed by alpha alone. The portrait is painted, so
+      // a tint would flatten skin and hair together rather than grey them.
       const sigil = this.add
-        .image(x - 44, 0, ensureHeroSigil(this, HEROES[hero.id].sigil))
-        .setDisplaySize(SIGIL * 0.52, SIGIL * 0.52)
-        .setTint(hero.hp > 0 ? PALETTE.text : PALETTE.muted)
-        .setAlpha(hero.hp > 0 ? 1 : 0.45);
+        .image(x - 44, 0, ensureHeroFace(this, hero.id))
+        .setDisplaySize(24, 24)
+        .setAlpha(hero.hp > 0 ? 1 : 0.35);
 
       const bar = this.add.graphics();
       bar.fillStyle(PALETTE.skyTop, 0.7);
@@ -296,7 +305,7 @@ export class QuestScene extends Phaser.Scene {
         .text(x - 44, 20, `${hero.level}`, displayStyle(14, PALETTE.muted))
         .setOrigin(0.5, 0.5);
 
-      this.partyStrip.add([sigil, bar, level]);
+      this.partyStrip.add([plate, sigil, bar, level]);
     });
   }
 

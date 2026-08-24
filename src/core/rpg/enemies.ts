@@ -58,7 +58,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   imp: {
     id: 'imp',
     shape: 'imp',
-    affinity: { weak: 'ice', resist: 'fire' },
+    affinity: { weak: 'water', resist: 'fire' },
     stats: { maxHp: 28, maxMp: 12, atk: 11, mag: 13, def: 5, spd: 11 },
     moves: ['bite', 'scorch'],
     exp: 46,
@@ -67,9 +67,9 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   wisp: {
     id: 'wisp',
     shape: 'wisp',
-    affinity: { weak: 'spark', resist: 'ice' },
+    affinity: { weak: 'leaf', resist: 'water' },
     stats: { maxHp: 26, maxMp: 12, atk: 9, mag: 14, def: 4, spd: 13 },
-    moves: ['bite', 'chill'],
+    moves: ['bite', 'drench'],
     exp: 42,
     tier: 1,
   },
@@ -78,7 +78,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   crab: {
     id: 'crab',
     shape: 'crab',
-    affinity: { weak: 'spark', resist: 'ice' },
+    affinity: { weak: 'leaf', resist: 'water' },
     stats: { maxHp: 78, maxMp: 14, atk: 22, mag: 8, def: 15, spd: 7 },
     moves: ['bite', 'gnash'],
     exp: 105,
@@ -87,7 +87,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   shade: {
     id: 'shade',
     shape: 'shade',
-    affinity: { weak: 'fire', resist: 'spark' },
+    affinity: { weak: 'fire', resist: 'leaf' },
     stats: { maxHp: 62, maxMp: 20, atk: 18, mag: 20, def: 11, spd: 15 },
     moves: ['bite', 'spit', 'lullaby'],
     exp: 115,
@@ -96,7 +96,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   golem: {
     id: 'golem',
     shape: 'golem',
-    affinity: { weak: 'ice', resist: 'fire' },
+    affinity: { weak: 'water', resist: 'fire' },
     stats: { maxHp: 92, maxMp: 14, atk: 24, mag: 6, def: 18, spd: 4 },
     moves: ['bite', 'wither'],
     exp: 120,
@@ -107,7 +107,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   wyrm: {
     id: 'wyrm',
     shape: 'wyrm',
-    affinity: { weak: 'ice', resist: 'fire' },
+    affinity: { weak: 'water', resist: 'fire' },
     stats: { maxHp: 150, maxMp: 26, atk: 32, mag: 28, def: 20, spd: 12 },
     moves: ['bite', 'scorch', 'gnash'],
     exp: 225,
@@ -116,9 +116,9 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   drake: {
     id: 'drake',
     shape: 'drake',
-    affinity: { weak: 'spark', resist: 'ice' },
+    affinity: { weak: 'leaf', resist: 'water' },
     stats: { maxHp: 165, maxMp: 30, atk: 35, mag: 26, def: 22, spd: 14 },
-    moves: ['bite', 'chill', 'roar'],
+    moves: ['bite', 'drench', 'roar'],
     exp: 240,
     tier: 3,
   },
@@ -130,7 +130,7 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
   crown: {
     id: 'crown',
     shape: 'crown',
-    affinity: { weak: 'spark', resist: 'fire' },
+    affinity: { weak: 'leaf', resist: 'fire' },
     stats: { maxHp: 460, maxMp: 60, atk: 42, mag: 38, def: 26, spd: 13 },
     moves: ['ruin', 'roar', 'wither', 'knit'],
     exp: 420,
@@ -164,7 +164,7 @@ export function encounterFor(
 
   // `answerable` narrows the draw to monsters the party can actually answer.
   // Only the opening fight passes it, and it matters there more than anywhere
-  // else: a lone wisp is weak to spark, which the Caster does not learn until
+  // else: a lone wisp is weak to leaf, which the Wizard does not learn until
   // level 2, and it resists the one bolt she does have. The single fight
   // whose whole job is to teach "hit it with the colour it already is" could
   // therefore teach the exact opposite, by punishing the only colour on offer.

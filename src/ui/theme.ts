@@ -24,6 +24,10 @@ export const PALETTE = {
 
   cyan: 0x45e0ff,
   violet: 0x9d7bff,
+  /** Sigil's leaf element. A yellow-green, deliberately far from `cyan` and
+   * `mint` — an element the player has to tell apart from water at 22px
+   * cannot afford to share a hue with either. */
+  lime: 0x9ae04a,
   amber: 0xffb347,
   rose: 0xff5f7e,
   mint: 0x5ef2a8,
@@ -49,6 +53,30 @@ export const PALETTE = {
   /** Moonlight. One light source, overhead — every rim light in the pond
    * agrees with it, which is most of what stops the scene looking flat. */
   moon: 0xdfe9ff,
+
+  /**
+   * Sigil's family, and the only place in the project where a colour is worn
+   * rather than meant.
+   *
+   * Everywhere else colour is the game's vocabulary: amber burns, cyan
+   * drowns, lime grows. These five say nothing — they exist so three faces
+   * can be told apart at 38px, which one flat tint could not manage. They are
+   * kept clear of amber, cyan and lime for exactly that reason: a hero whose
+   * hair matched an element would read as carrying it.
+   */
+  skin: 0xf4cfa8,
+  skinShade: 0xdcae86,
+  /**
+   * Two blacks and a brown. The blacks are lifted off true black on purpose:
+   * a portrait sits on a dark plate, so hair at 0x000000 would lose its
+   * outline into the backdrop and take the daughter's bunches with it. What
+   * survives is the contrast against skin, which is the same either way.
+   */
+  hairDaughter: 0x24252f,
+  hairDad: 0x1e1f28,
+  hairMom: 0x8a5834,
+  /** Eyes and mouth. Near-black, so features survive being shrunk. */
+  feature: 0x2a2438,
 } as const;
 
 // A system stack keeps text crisp on every device without a webfont round

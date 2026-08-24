@@ -1,13 +1,12 @@
 import Phaser from 'phaser';
 import type { BattleState, Combatant } from '../../core/rpg/battle';
 import { HEROES } from '../../core/rpg/party';
-import { PALETTE, RADIUS, displayStyle } from '../../ui/theme';
+import { PALETTE, RADIUS, displayStyle, shade } from '../../ui/theme';
 import { DEPTH } from '../../ui/widgets';
 import {
   PIP,
-  SIGIL,
   ensureGuardGlyph,
-  ensureHeroSigil,
+  ensureHeroFace,
   ensureStatusPip,
   statusColor,
 } from '../../ui/questTextures';
@@ -17,7 +16,7 @@ import { WIDTH } from '../../gameConfig';
 //
 // Each row is one hero and answers three questions without naming any of
 // them: how hurt are they (a bar), how much have they got left to cast with
-// (a row of pips), and what is stuck to them (pips orbiting the sigil).
+// (a row of pips), and what is stuck to them (pips beside the portrait).
 //
 // MP is pips rather than a second bar on purpose. A spell costs a countable
 // number, so a countable display lets the player check affordability by
@@ -26,9 +25,15 @@ import { WIDTH } from '../../gameConfig';
 
 const ROW_HEIGHT = 62;
 const LEFT = 22;
-const SIGIL_X = LEFT + 26;
-const BAR_X = LEFT + 56;
-const BAR_WIDTH = 214;
+const SIGIL_X = LEFT + 30;
+const BAR_X = LEFT + 64;
+/**
+ * Narrowed as the portrait grew, so the bar still ends where it used to and
+ * the HP figure and status pips to its right do not have to move at all.
+ */
+const BAR_WIDTH = 206;
+/** Big enough for a face to be a face. The row is 62px, so this is the ceiling. */
+const PLATE_R = 27;
 const BAR_HEIGHT = 14;
 const MP_PIP_R = 4;
 const MP_PIP_GAP = 11;
@@ -38,20 +43,22 @@ const MP_PER_LINE_MIN = 18;
  * Hard ceiling on pip lines.
  *
  * The pips used to wrap every 18 at fixed spacing, which silently assumed a
- * small pool. A level-12 Caster has 49 MP, and one repeatable Focus boon
+ * small pool. A level-12 Wizard has 49 MP, and one repeatable Focus boon
  * takes that to 55 — a fourth line, 42px down, straight through the next
  * hero's portrait 39px away. Lines are capped and the spacing derived from
  * the width instead, so the row cannot grow past its own height whatever the
  * pool reaches.
  */
 const MP_LINES = 2;
+/** The drawn size of a portrait. Sits inside the plate with room to spare. */
+const FACE_SIZE = 38;
 
 export interface PartyBar {
   container: Phaser.GameObjects.Container;
   update(state: BattleState): void;
   /** Lifts the row of whoever is acting, and dims the rest. */
   setActive(id: string | null): void;
-  /** Screen position of a hero's sigil, for floating numbers and targeting. */
+  /** Screen position of a hero's face, for floating numbers and targeting. */
   positionOf(id: string): { x: number; y: number };
   /** Offers these heroes as targets. Passing an empty list clears the offer. */
   offerTargets(ids: string[], onPick: (id: string) => void): void;
@@ -84,15 +91,19 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
 
     const ring = scene.add.graphics();
     const plate = scene.add.graphics();
-    plate.fillStyle(PALETTE.surface, 0.9);
-    plate.fillCircle(SIGIL_X, 0, 23);
+    // Lighter than the panels elsewhere, because two of the three have black
+    // hair and a portrait needs something to be a silhouette against.
+    plate.fillStyle(shade(PALETTE.surface, 0.18), 1);
+    plate.fillCircle(SIGIL_X, 0, PLATE_R);
     plate.lineStyle(1.5, PALETTE.surfaceEdge, 0.9);
-    plate.strokeCircle(SIGIL_X, 0, 23);
+    plate.strokeCircle(SIGIL_X, 0, PLATE_R);
 
-    const sigil = scene.add
-      .image(SIGIL_X, 0, ensureHeroSigil(scene, def.sigil))
-      .setDisplaySize(SIGIL * 0.62, SIGIL * 0.62)
-      .setTint(accent);
+    // Deliberately untinted: the portrait is painted, and tinting it would
+    // multiply skin, hair and eyes down to one wash. It is the only thing on
+    // this row that does not take the run's accent colour.
+    const face = scene.add
+      .image(SIGIL_X, 0, ensureHeroFace(scene, def.id))
+      .setDisplaySize(FACE_SIZE, FACE_SIZE);
 
     const bar = scene.add.graphics();
     const hp = scene.add.text(BAR_X + BAR_WIDTH + 10, -9, '', displayStyle(17)).setOrigin(0, 0);
@@ -103,19 +114,19 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
     // until this hero's next turn. It is a state, and an undrawn state does
     // not exist to a player who cannot be told about it in words.
     const guard = scene.add
-      .image(SIGIL_X + 17, 15, ensureGuardGlyph(scene))
-      .setDisplaySize(19, 19)
+      .image(SIGIL_X + 21, 18, ensureGuardGlyph(scene))
+      .setDisplaySize(20, 20)
       .setTint(PALETTE.cyan)
       .setVisible(false);
 
     // A transparent rectangle rather than the container itself: the row's
     // drawn parts are thin and scattered, and a hit area that matches them
-    // would leave dead gaps between a sigil and its bar.
+    // would leave dead gaps between a face and its bar.
     const hit = scene.add
       .rectangle(WIDTH / 2, 0, WIDTH - 32, ROW_HEIGHT - 6, 0xffffff, 0)
       .setOrigin(0.5, 0.5);
 
-    root.add([ring, plate, sigil, bar, hp, mp, statuses, guard, hit]);
+    root.add([ring, plate, face, bar, hp, mp, statuses, guard, hit]);
     container.add(root);
     rows.push({ id: `hero:${def.id}`, root, bar, hp, mp, statuses, guard, ring, hit, y });
   });

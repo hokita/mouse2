@@ -47,8 +47,8 @@ export type Policy = 'skilled' | 'naive';
 
 const BOLT: Record<Element, SkillId | null> = {
   fire: 'flare',
-  ice: 'frost',
-  spark: 'spark',
+  water: 'torrent',
+  leaf: 'thorn',
   plain: null,
 };
 
@@ -84,13 +84,13 @@ function heroCommand(
 
   // Keep everyone upright first. A wipe is the only way to lose.
   const hurt = allies.filter((a) => a.hp < a.stats.maxHp * 0.45);
-  if (hurt.length && actor.heroId === 'warden' && has('mend')) {
+  if (hurt.length && actor.heroId === 'daughter' && has('mend')) {
     return { kind: 'skill', skill: 'mend', target: weakest(hurt).id };
   }
   if (hurt.length && (state.bag.potion ?? 0) > 0 && weakest(hurt).hp < weakest(hurt).stats.maxHp * 0.25) {
     return { kind: 'item', item: 'potion', target: weakest(hurt).id };
   }
-  if (actor.heroId === 'warden' && has('cleanse')) {
+  if (actor.heroId === 'daughter' && has('cleanse')) {
     const afflicted = allies.find((a) => hasStatus(a.statuses, 'poison') || hasStatus(a.statuses, 'sleep'));
     if (afflicted) {
       return { kind: 'skill', skill: 'cleanse', target: afflicted.id };

@@ -60,11 +60,12 @@ describe('createBattle', () => {
 
   it('carries the party in as it stands, wounds and all', () => {
     const party = createParty();
-    party[0] = { ...party[0], hp: 7, mp: 2 };
+    const at = party.findIndex((h) => h.id === 'dad');
+    party[at] = { ...party[at], hp: 7, mp: 2 };
     const state = createBattle(party, ['blob'], createRng(1));
-    const vanguard = findCombatant(state, 'hero:vanguard');
-    expect(vanguard?.hp).toBe(7);
-    expect(vanguard?.mp).toBe(2);
+    const dad = findCombatant(state, 'hero:dad');
+    expect(dad?.hp).toBe(7);
+    expect(dad?.mp).toBe(2);
   });
 
   it('gives monsters the affinity the bestiary says they have', () => {
@@ -81,7 +82,7 @@ describe('createBattle', () => {
 
 describe('taking a turn', () => {
   it('wounds the target with a plain attack', () => {
-    const state = until(battle(), 'hero:vanguard');
+    const state = until(battle(), 'hero:dad');
     const before = findCombatant(state, 'foe:0')!.hp;
     const { state: after, events } = takeTurn(state, { kind: 'attack', target: 'foe:0' }, flat);
     expect(findCombatant(after, 'foe:0')!.hp).toBeLessThan(before);
@@ -89,12 +90,12 @@ describe('taking a turn', () => {
   });
 
   it('reports a weakness so the scene can shout about it', () => {
-    // A blob burns. The Caster's fire bolt should come back marked.
-    const state = until(battle(['blob']), 'hero:caster');
+    // A blob burns. The Wizard's fire bolt should come back marked.
+    const state = until(battle(['blob']), 'hero:mom');
     const withFlare: Hero[] = createParty().map((h) =>
-      h.id === 'caster' ? { ...h, level: 4 } : h
+      h.id === 'mom' ? { ...h, level: 4 } : h
     );
-    const ready = until(createBattle(withFlare, ['blob'], createRng(1)), 'hero:caster');
+    const ready = until(createBattle(withFlare, ['blob'], createRng(1)), 'hero:mom');
     const { events } = takeTurn(ready, { kind: 'skill', skill: 'flare', target: 'foe:0' }, flat);
     const damage = events.find((e) => e.type === 'damage');
     expect(damage).toMatchObject({ band: 'weak' });
@@ -104,50 +105,50 @@ describe('taking a turn', () => {
   it('reports a resisted hit too', () => {
     // An imp shrugs off fire.
     const withFlare: Hero[] = createParty().map((h) =>
-      h.id === 'caster' ? { ...h, level: 4 } : h
+      h.id === 'mom' ? { ...h, level: 4 } : h
     );
-    const ready = until(createBattle(withFlare, ['imp'], createRng(1)), 'hero:caster');
+    const ready = until(createBattle(withFlare, ['imp'], createRng(1)), 'hero:mom');
     const { events } = takeTurn(ready, { kind: 'skill', skill: 'flare', target: 'foe:0' }, flat);
     expect(events.find((e) => e.type === 'damage')).toMatchObject({ band: 'resist' });
   });
 
   it('charges MP for a skill', () => {
-    const state = until(battle(), 'hero:caster');
-    const before = findCombatant(state, 'hero:caster')!.mp;
-    const { state: after } = takeTurn(state, { kind: 'skill', skill: 'frost', target: 'foe:0' }, flat);
-    expect(findCombatant(after, 'hero:caster')!.mp).toBe(before - SKILLS.frost.mpCost);
+    const state = until(battle(), 'hero:mom');
+    const before = findCombatant(state, 'hero:mom')!.mp;
+    const { state: after } = takeTurn(state, { kind: 'skill', skill: 'torrent', target: 'foe:0' }, flat);
+    expect(findCombatant(after, 'hero:mom')!.mp).toBe(before - SKILLS.torrent.mpCost);
   });
 
-  it('refuses a skill the caster cannot pay for, and does not burn the turn', () => {
-    let state = until(battle(), 'hero:caster');
+  it('refuses a skill the mom cannot pay for, and does not burn the turn', () => {
+    let state = until(battle(), 'hero:mom');
     state = {
       ...state,
-      combatants: state.combatants.map((c) => (c.id === 'hero:caster' ? { ...c, mp: 0 } : c)),
+      combatants: state.combatants.map((c) => (c.id === 'hero:mom' ? { ...c, mp: 0 } : c)),
     };
-    const { state: after, events } = takeTurn(state, { kind: 'skill', skill: 'frost', target: 'foe:0' }, flat);
+    const { state: after, events } = takeTurn(state, { kind: 'skill', skill: 'torrent', target: 'foe:0' }, flat);
     expect(events).toEqual([]);
     expect(after).toBe(state);
   });
 
   it('lands a spread skill on every living foe', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'caster' ? { ...h, level: 8 } : h));
-    const ready = until(createBattle(party, ['golem', 'golem', 'golem'], createRng(1)), 'hero:caster');
+    const party: Hero[] = createParty().map((h) => (h.id === 'mom' ? { ...h, level: 8 } : h));
+    const ready = until(createBattle(party, ['golem', 'golem', 'golem'], createRng(1)), 'hero:mom');
     const before = livingFoes(ready).map((c) => c.hp);
-    const { state: after, events } = takeTurn(ready, { kind: 'skill', skill: 'storm' }, flat);
+    const { state: after, events } = takeTurn(ready, { kind: 'skill', skill: 'bramble' }, flat);
     const struck = events.filter((e) => e.type === 'damage').map((e) => (e as { target: string }).target);
     expect(new Set(struck).size).toBe(3);
     livingFoes(after).forEach((foe, i) => expect(foe.hp).toBeLessThan(before[i]));
   });
 
   it('mends an ally and never past full', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'vanguard' ? { ...h, hp: 4 } : h));
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:warden');
+    const party: Hero[] = createParty().map((h) => (h.id === 'dad' ? { ...h, hp: 4 } : h));
+    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:daughter');
     const { state: after, events } = takeTurn(
       ready,
-      { kind: 'skill', skill: 'mend', target: 'hero:vanguard' },
+      { kind: 'skill', skill: 'mend', target: 'hero:dad' },
       flat
     );
-    const healed = findCombatant(after, 'hero:vanguard')!;
+    const healed = findCombatant(after, 'hero:dad')!;
     expect(healed.hp).toBeGreaterThan(4);
     expect(healed.hp).toBeLessThanOrEqual(healed.stats.maxHp);
     expect(events.some((e) => e.type === 'heal')).toBe(true);
@@ -155,57 +156,57 @@ describe('taking a turn', () => {
 
   it('never heals past the bar even with a huge roll', () => {
     const party: Hero[] = createParty().map((h) =>
-      h.id === 'vanguard' ? { ...h, hp: heroStats(h).maxHp - 1 } : h
+      h.id === 'dad' ? { ...h, hp: heroStats(h).maxHp - 1 } : h
     );
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:warden');
-    const { state: after } = takeTurn(ready, { kind: 'skill', skill: 'mend', target: 'hero:vanguard' }, flat);
-    const healed = findCombatant(after, 'hero:vanguard')!;
+    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:daughter');
+    const { state: after } = takeTurn(ready, { kind: 'skill', skill: 'mend', target: 'hero:dad' }, flat);
+    const healed = findCombatant(after, 'hero:dad')!;
     expect(healed.hp).toBe(healed.stats.maxHp);
   });
 
   it('halves what lands on a guarding target', () => {
-    const state = until(battle(), 'hero:vanguard');
+    const state = until(battle(), 'hero:dad');
     const guarded = takeTurn(state, { kind: 'guard' }, flat).state;
-    expect(findCombatant(guarded, 'hero:vanguard')!.guarding).toBe(true);
+    expect(findCombatant(guarded, 'hero:dad')!.guarding).toBe(true);
   });
 
   it('drops the guard when that hero comes round again', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = takeTurn(state, { kind: 'guard' }, flat).state;
-    state = until(state, 'hero:vanguard');
-    expect(findCombatant(state, 'hero:vanguard')!.guarding).toBe(false);
+    state = until(state, 'hero:dad');
+    expect(findCombatant(state, 'hero:dad')!.guarding).toBe(false);
   });
 
   it('inflicts a status when the roll lands, and not when it does not', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'warden' ? { ...h, level: 2 } : h));
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:warden');
+    const party: Hero[] = createParty().map((h) => (h.id === 'dad' ? { ...h, level: 6 } : h));
+    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:dad');
 
-    const hit = takeTurn(ready, { kind: 'skill', skill: 'venom', target: 'foe:0' }, lucky);
-    expect(findCombatant(hit.state, 'foe:0')!.statuses.some((s) => s.kind === 'poison')).toBe(true);
+    const hit = takeTurn(ready, { kind: 'skill', skill: 'daunt', target: 'foe:0' }, lucky);
+    expect(findCombatant(hit.state, 'foe:0')!.statuses.some((s) => s.kind === 'atkDown')).toBe(true);
     expect(hit.events.some((e) => e.type === 'status')).toBe(true);
 
-    const missed = takeTurn(ready, { kind: 'skill', skill: 'venom', target: 'foe:0' }, unlucky);
+    const missed = takeTurn(ready, { kind: 'skill', skill: 'daunt', target: 'foe:0' }, unlucky);
     expect(findCombatant(missed.state, 'foe:0')!.statuses).toEqual([]);
   });
 
   it('says what a cure actually lifted, including nothing', () => {
     // A cleanse that finds no ailment still costs MP and still ends the turn,
     // so the scene has to be able to tell the two apart and draw both.
-    const party: Hero[] = createParty().map((h) => (h.id === 'warden' ? { ...h, level: 4 } : h));
-    const clean = until(createBattle(party, ['blob'], createRng(1)), 'hero:warden');
+    const party: Hero[] = createParty().map((h) => (h.id === 'daughter' ? { ...h, level: 4 } : h));
+    const clean = until(createBattle(party, ['blob'], createRng(1)), 'hero:daughter');
 
-    const nothing = takeTurn(clean, { kind: 'skill', skill: 'cleanse', target: 'hero:vanguard' }, flat);
+    const nothing = takeTurn(clean, { kind: 'skill', skill: 'cleanse', target: 'hero:dad' }, flat);
     expect(nothing.events.find((e) => e.type === 'cured')).toMatchObject({ cleared: [] });
 
     const afflicted: BattleState = {
       ...clean,
       combatants: clean.combatants.map((c) =>
-        c.id === 'hero:vanguard'
+        c.id === 'hero:dad'
           ? { ...c, statuses: [{ kind: 'poison', turns: 3 }, { kind: 'regen', turns: 3 }] }
           : c
       ),
     };
-    const lifted = takeTurn(afflicted, { kind: 'skill', skill: 'cleanse', target: 'hero:vanguard' }, flat);
+    const lifted = takeTurn(afflicted, { kind: 'skill', skill: 'cleanse', target: 'hero:dad' }, flat);
     // The blessing is not an ailment, so it is kept and not reported as lifted.
     expect(lifted.events.find((e) => e.type === 'cured')).toMatchObject({ cleared: ['poison'] });
   });
@@ -214,8 +215,8 @@ describe('taking a turn', () => {
     // `lull` deals no damage, so on a failed roll the turn used to produce no
     // event whatsoever - a legal, MP-spending command that the scene had
     // nothing to draw for and which looked like an ignored tap.
-    const party: Hero[] = createParty().map((h) => (h.id === 'caster' ? { ...h, level: 5 } : h));
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:caster');
+    const party: Hero[] = createParty().map((h) => (h.id === 'mom' ? { ...h, level: 5 } : h));
+    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:mom');
 
     const missed = takeTurn(ready, { kind: 'skill', skill: 'lull', target: 'foe:0' }, unlucky);
     expect(missed.events.some((e) => e.type === 'statusFailed')).toBe(true);
@@ -230,7 +231,7 @@ describe('taking a turn', () => {
   it('never reports a failed affliction against something already down', () => {
     // The inflict roll is skipped entirely for a fallen target, so there is
     // no miss to announce either.
-    let state = until(battle(), 'hero:warden');
+    let state = until(battle(), 'hero:daughter');
     state = {
       ...state,
       combatants: state.combatants.map((c) => (c.id === 'foe:0' ? { ...c, hp: 0 } : c)),
@@ -240,34 +241,34 @@ describe('taking a turn', () => {
   });
 
   it('skips the turn of a sleeper and says why', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:vanguard' ? { ...c, statuses: [{ kind: 'sleep', turns: 2 }] } : c
+        c.id === 'hero:dad' ? { ...c, statuses: [{ kind: 'sleep', turns: 2 }] } : c
       ),
     };
     const before = findCombatant(state, 'foe:0')!.hp;
     const { state: after, events } = takeTurn(state, { kind: 'attack', target: 'foe:0' }, flat);
     expect(events.some((e) => e.type === 'asleep')).toBe(true);
     expect(findCombatant(after, 'foe:0')!.hp).toBe(before);
-    expect(activeCombatant(after)?.id).not.toBe('hero:vanguard');
+    expect(activeCombatant(after)?.id).not.toBe('hero:dad');
   });
 
   it('says a sleeper cannot act, so the menu is never shown to them', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     expect(canAct(state)).toBe(true);
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:vanguard' ? { ...c, statuses: [{ kind: 'sleep', turns: 2 }] } : c
+        c.id === 'hero:dad' ? { ...c, statuses: [{ kind: 'sleep', turns: 2 }] } : c
       ),
     };
     expect(canAct(state)).toBe(false);
   });
 
   it('shakes a sleeper awake with damage', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
@@ -279,58 +280,58 @@ describe('taking a turn', () => {
   });
 
   it('bleeds the poisoned at the end of their own turn', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:vanguard' ? { ...c, statuses: [{ kind: 'poison', turns: 3 }] } : c
+        c.id === 'hero:dad' ? { ...c, statuses: [{ kind: 'poison', turns: 3 }] } : c
       ),
     };
-    const before = findCombatant(state, 'hero:vanguard')!.hp;
+    const before = findCombatant(state, 'hero:dad')!.hp;
     const { state: after } = takeTurn(state, { kind: 'guard' }, flat);
-    expect(findCombatant(after, 'hero:vanguard')!.hp).toBeLessThan(before);
+    expect(findCombatant(after, 'hero:dad')!.hp).toBeLessThan(before);
   });
 
   it('clears ailments with a cure but leaves the blessing', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'warden' ? { ...h, level: 4 } : h));
-    let state = until(createBattle(party, ['blob'], createRng(1)), 'hero:warden');
+    const party: Hero[] = createParty().map((h) => (h.id === 'daughter' ? { ...h, level: 4 } : h));
+    let state = until(createBattle(party, ['blob'], createRng(1)), 'hero:daughter');
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:vanguard'
+        c.id === 'hero:dad'
           ? { ...c, statuses: [{ kind: 'poison', turns: 3 }, { kind: 'regen', turns: 3 }] }
           : c
       ),
     };
-    const { state: after } = takeTurn(state, { kind: 'skill', skill: 'cleanse', target: 'hero:vanguard' }, flat);
-    const cured = findCombatant(after, 'hero:vanguard')!;
+    const { state: after } = takeTurn(state, { kind: 'skill', skill: 'cleanse', target: 'hero:dad' }, flat);
+    const cured = findCombatant(after, 'hero:dad')!;
     expect(cured.statuses.map((s) => s.kind)).toEqual(['regen']);
   });
 });
 
 describe('items', () => {
   it('drinks a potion, spends it, and mends by share of maximum', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'vanguard' ? { ...h, hp: 3 } : h));
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:vanguard');
+    const party: Hero[] = createParty().map((h) => (h.id === 'dad' ? { ...h, hp: 3 } : h));
+    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:dad');
     const { state: after, events } = takeTurn(
       ready,
-      { kind: 'item', item: 'potion', target: 'hero:vanguard' },
+      { kind: 'item', item: 'potion', target: 'hero:dad' },
       flat
     );
-    expect(findCombatant(after, 'hero:vanguard')!.hp).toBeGreaterThan(3);
+    expect(findCombatant(after, 'hero:dad')!.hp).toBeGreaterThan(3);
     expect(after.bag.potion).toBe(ready.bag.potion - 1);
     expect(events.some((e) => e.type === 'heal')).toBe(true);
   });
 
   it('refuses an item the bag does not hold, and does not burn the turn', () => {
-    const ready = until(battle(), 'hero:vanguard');
+    const ready = until(battle(), 'hero:dad');
     const { state: after, events } = takeTurn(ready, { kind: 'item', item: 'bomb' }, flat);
     expect(after).toBe(ready);
     expect(events).toEqual([]);
   });
 
   it('throws a bomb at everyone on the other side', () => {
-    let ready = until(battle(['blob', 'blob']), 'hero:vanguard');
+    let ready = until(battle(['blob', 'blob']), 'hero:dad');
     ready = { ...ready, bag: { ...ready.bag, bomb: 1 } };
     const before = livingFoes(ready).map((c) => c.hp);
     const { state: after } = takeTurn(ready, { kind: 'item', item: 'bomb' }, flat);
@@ -340,7 +341,7 @@ describe('items', () => {
 
 describe('ending a fight', () => {
   it('takes a felled foe out of the order and marks it down', () => {
-    let state = until(battle(['blob', 'blob']), 'hero:vanguard');
+    let state = until(battle(['blob', 'blob']), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) => (c.id === 'foe:0' ? { ...c, hp: 1 } : c)),
@@ -352,7 +353,7 @@ describe('ending a fight', () => {
   });
 
   it('is won when the last foe falls', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) => (c.id === 'foe:0' ? { ...c, hp: 1 } : c)),
@@ -367,15 +368,15 @@ describe('ending a fight', () => {
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.side === 'party' ? { ...c, hp: c.id === 'hero:warden' ? 1 : 0 } : c
+        c.side === 'party' ? { ...c, hp: c.id === 'hero:daughter' ? 1 : 0 } : c
       ),
-      order: ['hero:warden'],
+      order: ['hero:daughter'],
     };
     // Poison finishes the last one standing at the end of their own turn.
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:warden' ? { ...c, statuses: [{ kind: 'poison', turns: 2 }] } : c
+        c.id === 'hero:daughter' ? { ...c, statuses: [{ kind: 'poison', turns: 2 }] } : c
       ),
     };
     const { state: after } = takeTurn(state, { kind: 'guard' }, flat);
@@ -383,7 +384,7 @@ describe('ending a fight', () => {
   });
 
   it('ignores commands once it is over', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) => (c.id === 'foe:0' ? { ...c, hp: 1 } : c)),
@@ -435,14 +436,14 @@ describe('enemyCommand', () => {
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.side === 'party' && c.id !== 'hero:warden' ? { ...c, hp: 0 } : c
+        c.side === 'party' && c.id !== 'hero:daughter' ? { ...c, hp: 0 } : c
       ),
     };
     for (let i = 0; i < 30; i += 1) {
       const command = enemyCommand(state, rng);
       const target = 'target' in command ? command.target : undefined;
       if (target) {
-        expect(target).toBe('hero:warden');
+        expect(target).toBe('hero:daughter');
       }
     }
   });
@@ -473,18 +474,18 @@ describe('determinism', () => {
 
 describe('applyBattleToParty', () => {
   it('writes the damage back onto the heroes that took it', () => {
-    let state = until(battle(), 'hero:vanguard');
+    let state = until(battle(), 'hero:dad');
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:caster' ? { ...c, hp: 3, mp: 1, statuses: [{ kind: 'poison', turns: 2 }] } : c
+        c.id === 'hero:mom' ? { ...c, hp: 3, mp: 1, statuses: [{ kind: 'poison', turns: 2 }] } : c
       ),
     };
     const party = applyBattleToParty(createParty(), state);
-    const caster = party.find((h) => h.id === 'caster')!;
-    expect(caster.hp).toBe(3);
-    expect(caster.mp).toBe(1);
-    expect(caster.statuses).toEqual([{ kind: 'poison', turns: 2 }]);
+    const mom = party.find((h) => h.id === 'mom')!;
+    expect(mom.hp).toBe(3);
+    expect(mom.mp).toBe(1);
+    expect(mom.statuses).toEqual([{ kind: 'poison', turns: 2 }]);
   });
 
   it('keeps level and EXP, which battles never touch', () => {
