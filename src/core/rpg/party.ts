@@ -9,16 +9,15 @@ import type { Element } from './elements';
 // starts the instant the card is tapped, and a roster screen would put a
 // decision in front of a player who has not been told anything yet.
 //
-// They are told apart by sigil and colour alone. That is a real constraint on
-// the design — the difference between them has to be visible in what happens
-// when they act, not in a class name, so the three are pushed further apart
-// than a text-labelled party would need: the Vanguard is nearly twice the
-// Caster's HP, and the Caster nearly three times the Vanguard's magic.
+// A family: the daughter who leads, her father who hits, her mother who
+// casts. They are told apart by their faces and by what happens when they
+// act — never by a class name, because there is nowhere to write one. So the
+// three are pushed further apart than a text-labelled party would need: the
+// father is nearly twice the mother's HP, and the mother nearly three times
+// his magic. The daughter sits between them and carries the two things
+// neither of her parents has: untyped magic, and every heal in the game.
 
-export type HeroId = 'vanguard' | 'caster' | 'warden';
-
-/** The shape drawn on the portrait. Doubles as the character's whole identity. */
-export type HeroSigil = 'diamond' | 'star' | 'cross';
+export type HeroId = 'dad' | 'mom' | 'daughter';
 
 export interface LearnEntry {
   level: number;
@@ -27,7 +26,6 @@ export interface LearnEntry {
 
 export interface HeroDef {
   id: HeroId;
-  sigil: HeroSigil;
   base: Stats;
   growth: Stats;
   /** Kept in ascending level order — the skill tray is built from it in place. */
@@ -56,9 +54,24 @@ export interface Hero {
 export const REVIVE_FRACTION = 0.3;
 
 export const HEROES: Record<HeroId, HeroDef> = {
-  vanguard: {
-    id: 'vanguard',
-    sigil: 'diamond',
+  daughter: {
+    id: 'daughter',
+    base: { maxHp: 36, maxMp: 14, atk: 8, mag: 12, def: 8, spd: 12 },
+    growth: { maxHp: 5, maxMp: 3, atk: 1, mag: 2, def: 1, spd: 2 },
+    // Heal first, then the bolt that always lands the same. She is the only
+    // hero who can answer a monster whose colour the player has not worked
+    // out yet, and the only one who can put anybody back up.
+    learnset: [
+      { level: 1, skill: 'mend' },
+      { level: 2, skill: 'force' },
+      { level: 4, skill: 'cleanse' },
+      { level: 6, skill: 'bloom' },
+      { level: 8, skill: 'nova' },
+      { level: 9, skill: 'chorus' },
+    ],
+  },
+  dad: {
+    id: 'dad',
     base: { maxHp: 46, maxMp: 10, atk: 18, mag: 4, def: 12, spd: 8 },
     growth: { maxHp: 7, maxMp: 2, atk: 3, mag: 1, def: 2, spd: 1 },
     learnset: [
@@ -68,39 +81,25 @@ export const HEROES: Record<HeroId, HeroDef> = {
       { level: 9, skill: 'crush' },
     ],
   },
-  caster: {
-    id: 'caster',
-    sigil: 'star',
+  mom: {
+    id: 'mom',
     base: { maxHp: 30, maxMp: 16, atk: 6, mag: 16, def: 6, spd: 10 },
     growth: { maxHp: 4, maxMp: 3, atk: 1, mag: 3, def: 1, spd: 1 },
     // The three bolts arrive one at a time rather than together. Handing over
     // all three colours at once would present the game's central question
     // before the player has met enough monsters to know it is being asked.
     learnset: [
-      { level: 1, skill: 'frost' },
-      { level: 2, skill: 'spark' },
+      { level: 1, skill: 'torrent' },
+      { level: 2, skill: 'thorn' },
       { level: 4, skill: 'flare' },
       { level: 5, skill: 'lull' },
-      { level: 8, skill: 'storm' },
-    ],
-  },
-  warden: {
-    id: 'warden',
-    sigil: 'cross',
-    base: { maxHp: 36, maxMp: 14, atk: 8, mag: 12, def: 8, spd: 12 },
-    growth: { maxHp: 5, maxMp: 3, atk: 1, mag: 2, def: 1, spd: 2 },
-    learnset: [
-      { level: 1, skill: 'mend' },
-      { level: 2, skill: 'venom' },
-      { level: 4, skill: 'cleanse' },
-      { level: 6, skill: 'bloom' },
-      { level: 9, skill: 'chorus' },
+      { level: 8, skill: 'bramble' },
     ],
   },
 };
 
 /** Front to back, and the order the portraits stack up the screen. */
-export const PARTY_ORDER: HeroId[] = ['vanguard', 'caster', 'warden'];
+export const PARTY_ORDER: HeroId[] = ['daughter', 'dad', 'mom'];
 
 export function heroStats(hero: Hero): Stats {
   const def = HEROES[hero.id];
@@ -206,8 +205,8 @@ export function restHero(hero: Hero): Hero {
  *
  * Derived from the learnsets rather than written down, so it cannot drift
  * when a skill moves up or down the curve. Used to keep the opening fight
- * answerable: the Caster's bolts arrive one at a time, so at level 1 the
- * party holds fire and ice and no spark at all.
+ * answerable: the Wizard's bolts arrive one at a time, so at level 1 the
+ * party holds fire and water and no leaf at all.
  */
 export function elementsAtLevel(level: number): Element[] {
   const elements = new Set<Element>();

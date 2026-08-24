@@ -18,7 +18,7 @@ export type TargetShape = 'oneFoe' | 'allFoes' | 'oneAlly' | 'allAllies' | 'self
  *
  *   SHAPE says what the skill does. COLOUR says which element it is.
  *
- * So `frost` and `flare` share the `burst` shape and differ only in tint,
+ * So `torrent` and `flare` share the `burst` shape and differ only in tint,
  * and the player learns one shape once instead of five names never.
  */
 export type SkillGlyph =
@@ -52,7 +52,7 @@ export interface Skill {
   /**
    * Which stat the skill swings.
    *
-   * Stated rather than inferred from the element, because the Vanguard's
+   * Stated rather than inferred from the element, because the Warrior's
    * `ember` is a burning sword: it carries fire so it reads red and hits a
    * fire weakness, but it is muscle behind it. Inferring `mag` from the
    * colour would hand the game's heaviest hitter a skill powered by its
@@ -65,20 +65,21 @@ export interface Skill {
 }
 
 export type SkillId =
-  // Vanguard
+  // Warrior
   | 'ember'
   | 'cleave'
   | 'daunt'
   | 'crush'
-  // Caster
-  | 'frost'
-  | 'spark'
+  // Wizard
+  | 'torrent'
+  | 'thorn'
   | 'flare'
   | 'lull'
-  | 'storm'
-  // Warden
+  | 'bramble'
+  // Hero
   | 'mend'
-  | 'venom'
+  | 'force'
+  | 'nova'
   | 'cleanse'
   | 'bloom'
   | 'chorus'
@@ -88,9 +89,9 @@ export type SkillId =
   | 'bite'
   | 'gnash'
   | 'spit'
-  | 'chill'
+  | 'drench'
   | 'scorch'
-  | 'jolt'
+  | 'sting'
   | 'lullaby'
   | 'wither'
   | 'roar'
@@ -98,7 +99,7 @@ export type SkillId =
   | 'knit';
 
 export const SKILLS: Record<SkillId, Skill> = {
-  // --- Vanguard: a body in the way, and the only physical burst ----------
+  // --- Warrior: a body in the way, and the only physical burst -----------
   ember: { id: 'ember', glyph: 'blade', mpCost: 4, element: 'fire', power: 145, stat: 'atk', target: 'oneFoe', kind: 'strike' },
   cleave: { id: 'cleave', glyph: 'fan', mpCost: 6, element: 'plain', power: 80, stat: 'atk', target: 'allFoes', kind: 'strike' },
   daunt: {
@@ -114,12 +115,12 @@ export const SKILLS: Record<SkillId, Skill> = {
   },
   crush: { id: 'crush', glyph: 'blade', mpCost: 8, element: 'plain', power: 210, stat: 'atk', target: 'oneFoe', kind: 'strike' },
 
-  // --- Caster: the only source of all three colours ----------------------
+  // --- Wizard: the only source of all three colours ----------------------
   // Identical cost and power on purpose. The three bolts exist to make the
   // player answer one question every turn — what colour is that thing? — and
   // any difference in price would let them answer a cheaper question instead.
-  frost: { id: 'frost', glyph: 'burst', mpCost: 4, element: 'ice', power: 150, stat: 'mag', target: 'oneFoe', kind: 'strike' },
-  spark: { id: 'spark', glyph: 'burst', mpCost: 4, element: 'spark', power: 150, stat: 'mag', target: 'oneFoe', kind: 'strike' },
+  torrent: { id: 'torrent', glyph: 'burst', mpCost: 4, element: 'water', power: 150, stat: 'mag', target: 'oneFoe', kind: 'strike' },
+  thorn: { id: 'thorn', glyph: 'burst', mpCost: 4, element: 'leaf', power: 150, stat: 'mag', target: 'oneFoe', kind: 'strike' },
   flare: { id: 'flare', glyph: 'burst', mpCost: 4, element: 'fire', power: 150, stat: 'mag', target: 'oneFoe', kind: 'strike' },
   lull: {
     id: 'lull',
@@ -132,21 +133,17 @@ export const SKILLS: Record<SkillId, Skill> = {
     kind: 'afflict',
     inflicts: { status: 'sleep', turns: 2, chance: 0.7 },
   },
-  storm: { id: 'storm', glyph: 'wave', mpCost: 10, element: 'spark', power: 105, stat: 'mag', target: 'allFoes', kind: 'strike' },
+  bramble: { id: 'bramble', glyph: 'wave', mpCost: 10, element: 'leaf', power: 105, stat: 'mag', target: 'allFoes', kind: 'strike' },
 
-  // --- Warden: keeps the other two upright -------------------------------
+  // --- Hero: untyped magic, and every heal in the game --------------------
   mend: { id: 'mend', glyph: 'drop', mpCost: 4, element: 'plain', power: 135, stat: 'mag', target: 'oneAlly', kind: 'heal' },
-  venom: {
-    id: 'venom',
-    glyph: 'skull',
-    mpCost: 4,
-    element: 'plain',
-    power: 55,
-    stat: 'mag',
-    target: 'oneFoe',
-    kind: 'afflict',
-    inflicts: { status: 'poison', turns: 4, chance: 0.85 },
-  },
+  // Untyped, and that is the entire point. The Wizard's bolts swing between
+  // 1.75x and 0.5x on whether the player read the colour right; these two
+  // never move. So the daughter is what a player reaches for when they
+  // cannot tell what they are looking at, and the price of that certainty is
+  // a ceiling: a matched flare beats `nova` every time.
+  force: { id: 'force', glyph: 'burst', mpCost: 5, element: 'plain', power: 190, stat: 'mag', target: 'oneFoe', kind: 'strike' },
+  nova: { id: 'nova', glyph: 'burst', mpCost: 9, element: 'plain', power: 240, stat: 'mag', target: 'oneFoe', kind: 'strike' },
   cleanse: { id: 'cleanse', glyph: 'ring', mpCost: 3, element: 'plain', power: 0, stat: 'mag', target: 'oneAlly', kind: 'cure' },
   bloom: {
     id: 'bloom',
@@ -180,9 +177,9 @@ export const SKILLS: Record<SkillId, Skill> = {
     kind: 'afflict',
     inflicts: { status: 'poison', turns: 3, chance: 0.6 },
   },
-  chill: { id: 'chill', glyph: 'burst', mpCost: 3, element: 'ice', power: 130, stat: 'mag', target: 'oneFoe', kind: 'strike' },
+  drench: { id: 'drench', glyph: 'burst', mpCost: 3, element: 'water', power: 130, stat: 'mag', target: 'oneFoe', kind: 'strike' },
   scorch: { id: 'scorch', glyph: 'burst', mpCost: 3, element: 'fire', power: 130, stat: 'mag', target: 'oneFoe', kind: 'strike' },
-  jolt: { id: 'jolt', glyph: 'burst', mpCost: 3, element: 'spark', power: 130, stat: 'mag', target: 'oneFoe', kind: 'strike' },
+  sting: { id: 'sting', glyph: 'burst', mpCost: 3, element: 'leaf', power: 130, stat: 'mag', target: 'oneFoe', kind: 'strike' },
   lullaby: {
     id: 'lullaby',
     glyph: 'moon',

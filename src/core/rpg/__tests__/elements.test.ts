@@ -7,11 +7,11 @@ describe('elementMultiplier', () => {
   });
 
   it('blunts a hit on the resistance', () => {
-    expect(elementMultiplier('ice', { weak: 'fire', resist: 'ice' })).toBe(RESIST_MULT);
+    expect(elementMultiplier('water', { weak: 'fire', resist: 'water' })).toBe(RESIST_MULT);
   });
 
   it('leaves an unaligned hit alone', () => {
-    expect(elementMultiplier('spark', { weak: 'fire', resist: 'ice' })).toBe(1);
+    expect(elementMultiplier('leaf', { weak: 'fire', resist: 'water' })).toBe(1);
   });
 
   it('leaves a hit alone when the target has no affinity at all', () => {
@@ -22,7 +22,7 @@ describe('elementMultiplier', () => {
     // Physical damage is the one attack whose number always means the same
     // thing. With no words on screen, that is the player's baseline for
     // reading every other number as big or small.
-    expect(elementMultiplier('plain', { weak: 'fire', resist: 'ice' })).toBe(1);
+    expect(elementMultiplier('plain', { weak: 'fire', resist: 'water' })).toBe(1);
   });
 });
 
@@ -36,6 +36,6 @@ describe('affinityBand', () => {
 
 describe('CASTABLE', () => {
   it('is the three coloured elements, and does not include plain', () => {
-    expect(CASTABLE).toEqual(['fire', 'ice', 'spark']);
+    expect(CASTABLE).toEqual(['fire', 'water', 'leaf']);
   });
 });

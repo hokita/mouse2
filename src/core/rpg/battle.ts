@@ -297,7 +297,7 @@ function applyItem(draft: Draft, actor: Combatant, itemId: ItemId, chosen: strin
     }
     if (item.flatDamage) {
       // A bomb is a bomb: the same hole whoever throws it, so it stays useful
-      // in the hands of the Caster with 6 attack and the Vanguard with 30.
+      // in the hands of the mother with 6 attack and the father with 30.
       const { amount, band } = computeDamage(
         {
           power: 100,

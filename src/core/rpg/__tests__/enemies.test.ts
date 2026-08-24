@@ -107,7 +107,7 @@ describe('the opening fight', () => {
 
   it('only sends monsters the level-1 party can answer', () => {
     // The one forced battle exists to teach "hit it with the colour it
-    // already is". A wisp is weak to spark, which the Caster does not learn
+    // already is". A wisp is weak to leaf, which the Wizard does not learn
     // until level 2 — and it resists the one bolt she starts with, so that
     // fight would have taught the exact opposite of the lesson.
     const rng = createRng(1);
@@ -137,9 +137,9 @@ describe('the opening fight', () => {
   });
 
   it('is derived from the learnsets rather than written down twice', () => {
-    // Level 1 is the Vanguard's fire and the Caster's ice, and no spark.
-    expect([...atLevelOne].sort()).toEqual(['fire', 'ice']);
-    expect(elementsAtLevel(2)).toContain('spark');
+    // Level 1 is the Warrior's fire and the Wizard's water, and no leaf.
+    expect([...atLevelOne].sort()).toEqual(['fire', 'water']);
+    expect(elementsAtLevel(2)).toContain('leaf');
   });
 });
 

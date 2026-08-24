@@ -35,7 +35,7 @@ describe('computeDamage', () => {
   });
 
   it('hits far harder on a weakness than off it, and says so', () => {
-    const off = computeDamage({ ...BASE, element: 'ice', affinity: { weak: 'fire' } }, flat);
+    const off = computeDamage({ ...BASE, element: 'water', affinity: { weak: 'fire' } }, flat);
     const on = computeDamage({ ...BASE, element: 'fire', affinity: { weak: 'fire' } }, flat);
     expect(on.amount).toBeGreaterThan(off.amount * 1.5);
     expect(on.band).toBe('weak');
@@ -43,7 +43,7 @@ describe('computeDamage', () => {
   });
 
   it('reports a resisted hit so the scene can draw it small', () => {
-    const result = computeDamage({ ...BASE, element: 'ice', affinity: { resist: 'ice' } }, flat);
+    const result = computeDamage({ ...BASE, element: 'water', affinity: { resist: 'water' } }, flat);
     expect(result.band).toBe('resist');
   });
 

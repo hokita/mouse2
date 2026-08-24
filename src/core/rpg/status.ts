@@ -21,7 +21,7 @@ export const POISON_FRACTION = 0.08;
 export const REGEN_FRACTION = 0.1;
 export const ATK_DOWN_MULT = 0.6;
 
-/** The three the Warden's cure clears. `regen` is a blessing, not an ailment. */
+/** The three the daughter's cure clears. `regen` is a blessing, not an ailment. */
 const AILMENTS: StatusKind[] = ['poison', 'sleep', 'atkDown'];
 
 export function hasStatus(statuses: readonly Status[], kind: StatusKind): boolean {

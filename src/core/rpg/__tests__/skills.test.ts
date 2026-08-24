@@ -69,19 +69,19 @@ describe('the skill table', () => {
   it('charges more for hitting everyone than for hitting one', () => {
     // Otherwise the single-target skills are never the right answer and the
     // command menu is decoration.
-    expect(SKILLS.storm.mpCost).toBeGreaterThan(SKILLS.spark.mpCost);
+    expect(SKILLS.bramble.mpCost).toBeGreaterThan(SKILLS.thorn.mpCost);
     expect(SKILLS.chorus.mpCost).toBeGreaterThan(SKILLS.mend.mpCost);
     expect(SKILLS.cleave.mpCost).toBeGreaterThan(SKILLS.ember.mpCost);
   });
 
-  it('covers all three elements between the Caster bolts', () => {
-    const elements = ['flare', 'frost', 'spark'].map((id) => SKILLS[id as 'flare'].element);
-    expect([...elements].sort()).toEqual(['fire', 'ice', 'spark']);
+  it('covers all three elements between the Wizard bolts', () => {
+    const elements = ['flare', 'torrent', 'thorn'].map((id) => SKILLS[id as 'flare'].element);
+    expect([...elements].sort()).toEqual(['fire', 'leaf', 'water']);
   });
 
   it('prices the three bolts identically, so the choice is colour and never cost', () => {
-    const costs = new Set(['flare', 'frost', 'spark'].map((id) => SKILLS[id as 'flare'].mpCost));
-    const powers = new Set(['flare', 'frost', 'spark'].map((id) => SKILLS[id as 'flare'].power));
+    const costs = new Set(['flare', 'torrent', 'thorn'].map((id) => SKILLS[id as 'flare'].mpCost));
+    const powers = new Set(['flare', 'torrent', 'thorn'].map((id) => SKILLS[id as 'flare'].power));
     expect(costs.size).toBe(1);
     expect(powers.size).toBe(1);
   });
@@ -90,7 +90,7 @@ describe('the skill table', () => {
 describe('isOffensive', () => {
   it('is true for anything aimed at the other side', () => {
     expect(isOffensive(SKILLS.ember)).toBe(true);
-    expect(isOffensive(SKILLS.venom)).toBe(true);
+    expect(isOffensive(SKILLS.daunt)).toBe(true);
     expect(isOffensive(SKILLS.mend)).toBe(false);
     expect(isOffensive(SKILLS.cleanse)).toBe(false);
   });
@@ -103,7 +103,7 @@ describe('the stat behind a skill', () => {
     }
   });
 
-  it('swings muscle behind the Vanguard fire skill and magic behind the Caster bolts', () => {
+  it('swings muscle behind the Warrior fire skill and magic behind the Wizard bolts', () => {
     // `ember` is a burning sword, not a spell. Reading the stat off the
     // element would power the game's heaviest hitter with its worst number.
     expect(SKILLS.ember.stat).toBe('atk');

@@ -9,10 +9,10 @@
 // glance. 1.75x against 0.5x is a three-and-a-half-fold spread; a gentler
 // 1.2/0.8 would be arithmetic the player has to do rather than see.
 
-export type Element = 'fire' | 'ice' | 'spark' | 'plain';
+export type Element = 'fire' | 'water' | 'leaf' | 'plain';
 
 /** The three coloured elements a skill can carry. `plain` is a fist. */
-export const CASTABLE = ['fire', 'ice', 'spark'] as const satisfies readonly Element[];
+export const CASTABLE = ['fire', 'water', 'leaf'] as const satisfies readonly Element[];
 
 export const WEAK_MULT = 1.75;
 export const RESIST_MULT = 0.5;

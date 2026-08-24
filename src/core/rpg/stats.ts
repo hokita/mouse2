@@ -1,8 +1,8 @@
 // Stat blocks and the level curve.
 //
 // Six numbers per combatant, which is as few as a turn-based game can get
-// away with and still let three party members feel different: the Vanguard
-// swings atk, the Caster swings mag, the Warden goes first on spd.
+// away with and still let three party members feel different: the father
+// swings atk, the mother swings mag, the daughter goes first on spd.
 //
 // None of these six are ever printed. HP and MP are a bar and a row of pips;
 // atk, mag, def and spd only ever surface as the size of a damage number.

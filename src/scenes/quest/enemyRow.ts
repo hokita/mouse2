@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import type { BattleState, Combatant } from '../../core/rpg/battle';
 import { ENEMIES } from '../../core/rpg/enemies';
-import { HEROES } from '../../core/rpg/party';
 import { PALETTE } from '../../ui/theme';
 import { DEPTH, containerHitArea } from '../../ui/widgets';
 import { TEX } from '../../ui/textures';
@@ -12,7 +11,7 @@ import {
   elementColor,
   ensureElementMark,
   ensureFoeTexture,
-  ensureHeroSigil,
+  ensureHeroFace,
   ensureStatusPip,
   ensureTargetRing,
   statusColor,
@@ -186,16 +185,17 @@ export function createEnemyRow(
         const x = 30 + index * 34;
         const isHero = combatant.side === 'party';
         const key = isHero
-          ? ensureHeroSigil(scene, HEROES[combatant.heroId!].sigil)
+          ? ensureHeroFace(scene, combatant.heroId!)
           : ensureElementMark(scene, ENEMIES[combatant.enemyId!].affinity.weak ?? 'plain');
-        const tint = isHero
-          ? PALETTE.text
-          : elementColor(ENEMIES[combatant.enemyId!].affinity.weak ?? 'plain');
         const icon = scene.add
           .image(x, 0, key)
           .setDisplaySize(size, size)
-          .setTint(tint)
           .setAlpha(index === 0 ? 1 : 0.5 - index * 0.05);
+        // Monster marks carry the colour of the element that kills them; a
+        // hero portrait is already painted and must be left alone.
+        if (!isHero) {
+          icon.setTint(elementColor(ENEMIES[combatant.enemyId!].affinity.weak ?? 'plain'));
+        }
         queue.add(icon);
       });
     },
