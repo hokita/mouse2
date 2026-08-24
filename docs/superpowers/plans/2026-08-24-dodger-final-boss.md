@@ -226,12 +226,32 @@ git commit -m "Add the boss's phase table and phase selection"
 
 **Interfaces:**
 - Consumes: `BOSS_PHASES`, `BossPhase`, `BOSS_WIDTH`, `BOSS_HEIGHT`, `BOSS_STATION_Y`, `BOSS_SPAWN_Y`, `BOSS_EDGE_MARGIN` from Task 1.
-- Produces: `slideBounds(screenWidth: number): { minX: number; maxX: number }`, `slideX(elapsedMs: number, phase: BossPhase, minX: number, maxX: number): number`, `arrivalY(t: number): number`, `bossHullBottom(): number`, `bossPlayerFloor(playerSize: number, clearance: number): number`. All take `t` as descent progress clamped to 0..1.
+- Produces: `slideBounds(screenWidth: number): { minX: number; maxX: number }`, `slideX(elapsedMs: number, phase: BossPhase, minX: number, maxX: number): number`, `arrivalY(t: number): number` (`t` is descent progress, clamped to 0..1), `bossHullBottom(): number`, `playerFloorForHull(hullCenterY: number, playerSize: number, clearance: number): number`, `bossPlayerFloor(playerSize: number, clearance: number): number`.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `src/core/__tests__/boss.test.ts` (and extend the import at the top to
-`import { BOSS_HEIGHT, BOSS_MAX_HP, BOSS_PHASES, BOSS_SPAWN_Y, BOSS_STATION_Y, BOSS_WIDTH, arrivalY, bossHullBottom, bossPlayerFloor, phaseAt, slideBounds, slideX } from '../boss';`):
+Append to `src/core/__tests__/boss.test.ts` and extend the import at the top to:
+
+```typescript
+import {
+  BOSS_MAX_HP,
+  BOSS_PHASES,
+  BOSS_SPAWN_Y,
+  BOSS_STATION_Y,
+  BOSS_WIDTH,
+  arrivalY,
+  bossHullBottom,
+  bossPlayerFloor,
+  phaseAt,
+  playerFloorForHull,
+  slideBounds,
+  slideX,
+} from '../boss';
+```
+
+Import exactly these — no more. `tsconfig.json` sets `noUnusedLocals: true`
+and includes `src`, so test files are type-checked and one unused import
+fails `pnpm build`.
 
 ```typescript
 describe('slideBounds', () => {
@@ -281,12 +301,13 @@ describe('slideX', () => {
     expect(atTurn).toBeLessThan(atMid);
   });
 
-  it('sweeps faster in later phases', () => {
-    const quarter = (phase: 1 | 2 | 3) => BOSS_PHASES[phase].slidePeriodMs / 4;
-    // A quarter period in, every phase is at mid-sweep — so compare how long
-    // that took rather than where it got to.
-    expect(quarter(3)).toBeLessThan(quarter(2));
-    expect(quarter(2)).toBeLessThan(quarter(1));
+  it('covers more ground in the same time in later phases', () => {
+    // Exercises slideX itself rather than re-asserting the BOSS_PHASES table
+    // (which the phase-table tests already cover): a shorter period must
+    // translate into more distance travelled from the turn in equal time.
+    const travelled = (phase: 1 | 2 | 3) => Math.abs(slideX(400, phase, minX, maxX) - minX);
+    expect(travelled(2)).toBeGreaterThan(travelled(1));
+    expect(travelled(3)).toBeGreaterThan(travelled(2));
   });
 });
 
@@ -329,6 +350,28 @@ describe('bossPlayerFloor', () => {
 
   it('still leaves the player most of the screen', () => {
     expect(bossPlayerFloor(40, 18)).toBeLessThan(932 * 0.35);
+  });
+});
+
+describe('playerFloorForHull', () => {
+  it('agrees with bossPlayerFloor once the hull is on station', () => {
+    expect(playerFloorForHull(BOSS_STATION_Y, 40, 18)).toBe(bossPlayerFloor(40, 18));
+  });
+
+  it('never lets the descending hull overlap the ship', () => {
+    // The regression this function exists for. The hull descends on a
+    // quadratic ease-out; a floor that interpolated linearly from
+    // PLAYER_MIN_Y to 298 fell BEHIND the hull for t in [0.55, 0.85] and
+    // overlapped the ship by up to 9.6px — the boss's entrance stealing a
+    // heart the player could do nothing about. Deriving the floor from the
+    // hull's live position makes the overlap impossible by construction,
+    // whatever easing the descent later uses.
+    for (let step = 0; step <= 100; step += 1) {
+      const t = step / 100;
+      const hullY = arrivalY(t);
+      const shipTop = Math.max(110, playerFloorForHull(hullY, 40, 18)) - 40 / 2;
+      expect(shipTop).toBeGreaterThanOrEqual(hullY + 120 / 2);
+    }
   });
 });
 ```
@@ -379,7 +422,29 @@ export function bossHullBottom(): number {
 }
 
 /**
- * The ship's floor during the fight.
+ * The ship's floor for a hull whose centre is at `hullCenterY`.
+ *
+ * Derived from the hull's live position rather than interpolated
+ * independently. A floor that eased linearly from PLAYER_MIN_Y to the
+ * on-station value fell behind the quadratic descent for t in [0.55, 0.85]
+ * and let the hull overlap the ship by up to 9.6px — the boss's entrance
+ * taking a heart the player could not avoid. Tracking the hull makes that
+ * impossible by construction, whatever easing the descent uses.
+ *
+ * Callers clamp the result up to PLAYER_MIN_Y: while the hull is still off
+ * the top of the screen this returns a value above it, and the ship should
+ * keep its ordinary range until the boss actually needs the room.
+ */
+export function playerFloorForHull(
+  hullCenterY: number,
+  playerSize: number,
+  clearance: number
+): number {
+  return hullCenterY + BOSS_HEIGHT / 2 + playerSize / 2 + clearance;
+}
+
+/**
+ * The ship's floor once the boss is on station.
  *
  * PLAYER_MIN_Y (110) would leave a pocket between the HUD and the hull's top
  * edge where the player could park out of reach of every downward fan, which
@@ -387,7 +452,7 @@ export function bossHullBottom(): number {
  * ship keeps y 298-912 of a 932px screen, which is ample.
  */
 export function bossPlayerFloor(playerSize: number, clearance: number): number {
-  return bossHullBottom() + playerSize / 2 + clearance;
+  return playerFloorForHull(BOSS_STATION_Y, playerSize, clearance);
 }
 ```
 
@@ -523,7 +588,7 @@ git commit -m "Draw the boss hull"
   - `spawnBoss(scene: Phaser.Scene): Boss`
   - `updateBoss(scene: Phaser.Scene, boss: Boss, dtMs: number, targetX: number, targetY: number): BossShot[]`
   - `bossArrived(boss: Boss): boolean`
-  - `bossArrivalProgress(boss: Boss): number` — 0..1, for the scene's floor easing
+  - `bossArrivalProgress(boss: Boss): number` — 0..1 descent progress; used inside this module to drive `arrivalY`. Exported for completeness; the scene does not need it.
   - `damageBoss(scene: Phaser.Scene, boss: Boss, amount: number): boolean` — true if this killed it
   - `bossRect(boss: Boss): Rect`
   - `bossCenter(boss: Boss): { x: number; y: number }`
@@ -935,16 +1000,16 @@ git commit -m "Stop the field at 90s and sweep it away for the boss"
 - Modify: `src/scenes/GameScene.ts`
 
 **Interfaces:**
-- Consumes: `spawnBoss`, `updateBoss`, `bossArrived`, `bossArrivalProgress`, `destroyBoss`, `Boss` from `scenes/dodger/boss.ts`; `bossPlayerFloor` from `core/boss.ts`.
+- Consumes: `spawnBoss`, `updateBoss`, `bossArrived`, `bossCenter`, `destroyBoss`, `Boss` from `scenes/dodger/boss.ts`; `bossPlayerFloor`, `playerFloorForHull` from `core/boss.ts`.
 - Produces: `this.boss: Boss | null` and `this.playerFloor: number` on `GameScene`.
 
 - [ ] **Step 1: Add the imports**
 
 ```typescript
-import { bossPlayerFloor } from '../core/boss';
+import { bossPlayerFloor, playerFloorForHull } from '../core/boss';
 import {
-  bossArrivalProgress,
   bossArrived,
+  bossCenter,
   destroyBoss,
   spawnBoss,
   updateBoss,
@@ -952,8 +1017,13 @@ import {
 import type { Boss } from './dodger/boss';
 ```
 
-(Merge `bossPlayerFloor` into the `core/boss` import added in Task 5 rather
-than writing a second import from the same module.)
+Merge `bossPlayerFloor` and `playerFloorForHull` into the `core/boss` import
+added in Task 5 rather than writing a second import from the same module.
+
+Import exactly these names — `noUnusedLocals` is on, so an import this task
+does not use fails the build. In particular do NOT import
+`bossArrivalProgress`: the floor is derived from the hull's position, not
+from descent progress, so nothing in the scene calls it.
 
 - [ ] **Step 2: Add the constant and fields**
 
@@ -1053,10 +1123,14 @@ so an unused `shots` would fail the build. Task 7 captures it.
       if (this.runPhase === 'incoming') {
         // The descending hull pushes the ship out of its space rather than
         // teleporting it: a hard switch would snap the ship up to 188px.
-        this.playerFloor = Phaser.Math.Linear(
+        //
+        // The floor is read off the hull's live position, NOT interpolated
+        // toward PLAYER_BOSS_MIN_Y in parallel: the descent eases
+        // quadratically, so a linear floor falls behind it in mid-descent and
+        // the hull overlaps the ship — a heart lost to the entrance itself.
+        this.playerFloor = Math.max(
           PLAYER_MIN_Y,
-          PLAYER_BOSS_MIN_Y,
-          bossArrivalProgress(this.boss)
+          playerFloorForHull(bossCenter(this.boss).y, PLAYER_SIZE, HUD_CLEARANCE)
         );
         this.player.y = Math.max(this.player.y, this.playerFloor);
         if (bossArrived(this.boss)) {
@@ -1108,10 +1182,14 @@ loop at the end of the block, so it reads:
       if (this.runPhase === 'incoming') {
         // The descending hull pushes the ship out of its space rather than
         // teleporting it: a hard switch would snap the ship up to 188px.
-        this.playerFloor = Phaser.Math.Linear(
+        //
+        // The floor is read off the hull's live position, NOT interpolated
+        // toward PLAYER_BOSS_MIN_Y in parallel: the descent eases
+        // quadratically, so a linear floor falls behind it in mid-descent and
+        // the hull overlaps the ship — a heart lost to the entrance itself.
+        this.playerFloor = Math.max(
           PLAYER_MIN_Y,
-          PLAYER_BOSS_MIN_Y,
-          bossArrivalProgress(this.boss)
+          playerFloorForHull(bossCenter(this.boss).y, PLAYER_SIZE, HUD_CLEARANCE)
         );
         this.player.y = Math.max(this.player.y, this.playerFloor);
         if (bossArrived(this.boss)) {
@@ -1286,7 +1364,10 @@ Replace the Task 7 stub with:
   }
 ```
 
-- [ ] **Step 5: Add bossCenter to the boss import**
+- [ ] **Step 5: Confirm the boss import needs nothing new**
+
+`bossCenter` and `destroyBoss` were both imported in Task 6. Only
+`BOSS_KILL_POINTS` (Step 3) is new here.
 
 - [ ] **Step 6: Stop the boss's bullets from outliving the win**
 
