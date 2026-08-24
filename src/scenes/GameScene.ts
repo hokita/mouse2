@@ -5,6 +5,7 @@ import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { spawnRange } from '../core/difficulty';
+import { BOSS_CLEAR_FALL_MULTIPLIER, BOSS_TIME_MS } from '../core/boss';
 import { fanVelocities } from '../core/spread';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
@@ -107,6 +108,13 @@ const INVINCIBILITY_MS = 1500;
 
 type GameState = 'playing' | 'gameOver';
 
+/**
+ * Where in the run we are, kept separate from GameState (how it ended) so
+ * every existing `state === 'gameOver'` check keeps working untouched and a
+ * heart lost at any phase takes the same path it always did.
+ */
+type RunPhase = 'field' | 'clearing' | 'incoming' | 'boss';
+
 /** Enemy bullets travel on an arbitrary heading so tanks can fire a fan. */
 interface EnemyBullet {
   rect: Phaser.GameObjects.Rectangle;
@@ -154,6 +162,7 @@ export class GameScene extends Phaser.Scene {
   private state!: GameState;
   private dragging = false;
   private elapsedMs!: number;
+  private runPhase!: RunPhase;
 
   constructor() {
     super('GameScene');
@@ -244,6 +253,7 @@ export class GameScene extends Phaser.Scene {
     this.overlay.hide();
     this.scoreState = createScore();
     this.elapsedMs = 0;
+    this.runPhase = 'field';
     const opening = spawnRange(0);
     this.spawnerState = createSpawner(opening.min, opening.max);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
@@ -287,15 +297,23 @@ export class GameScene extends Phaser.Scene {
     // axis-aligned whatever the sprite is doing.
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
 
-    const spawnResult = tickSpawner(this.spawnerState, safeDelta);
-    this.spawnerState = spawnResult.state;
-    if (spawnResult.shouldSpawn) {
-      this.spawnEnemy();
-      // Redraw the next wait from the range the run has reached. Rebuilding
-      // discards the spawner's sub-frame carryover, which is far smaller than
-      // the interval it is folded into.
-      const range = spawnRange(this.elapsedMs);
-      this.spawnerState = createSpawner(range.min, range.max);
+    if (this.runPhase === 'field') {
+      if (this.elapsedMs >= BOSS_TIME_MS) {
+        // Nothing else spawns from here on; the field on screen is the last
+        // of it.
+        this.runPhase = 'clearing';
+      } else {
+        const spawnResult = tickSpawner(this.spawnerState, safeDelta);
+        this.spawnerState = spawnResult.state;
+        if (spawnResult.shouldSpawn) {
+          this.spawnEnemy();
+          // Redraw the next wait from the range the run has reached.
+          // Rebuilding discards the spawner's sub-frame carryover, which is
+          // far smaller than the interval it is folded into.
+          const range = spawnRange(this.elapsedMs);
+          this.spawnerState = createSpawner(range.min, range.max);
+        }
+      }
     }
 
     if (this.dragging && this.input.activePointer.isDown) {
@@ -306,7 +324,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    const fallDistance = ENEMY_FALL_SPEED * (safeDelta / 1000);
+    // Tripled while clearing so the last enemy cannot hold the boss off for
+    // its full ~12.2s lifetime — see BOSS_CLEAR_FALL_MULTIPLIER.
+    const fallMultiplier = this.runPhase === 'clearing' ? BOSS_CLEAR_FALL_MULTIPLIER : 1;
+    const fallDistance = ENEMY_FALL_SPEED * fallMultiplier * (safeDelta / 1000);
     // The starfield drifts at a fraction of the enemy speed, so the
     // background reads as far away rather than as part of the hazard layer.
     this.stars.scroll(fallDistance * 0.22);
@@ -345,7 +366,7 @@ export class GameScene extends Phaser.Scene {
       // killable. Waiting for the centre to clear the top edge gave anything
       // flying up near the spawn line a band it could never be shot from,
       // since every bullet travels downward.
-      if (enemyFire.shouldSpawn && this.isOnScreen(enemy)) {
+      if (enemyFire.shouldSpawn && this.isOnScreen(enemy) && this.runPhase !== 'clearing') {
         const shots =
           enemy.kind === 'tank'
             ? fanVelocities(TANK_SPREAD_COUNT, TANK_SPREAD_RADIANS, ENEMY_BULLET_SPEED)
