@@ -17,9 +17,11 @@ import { SKILLS } from '../skills';
 import type { SkillId } from '../skills';
 import { hasStatus } from '../status';
 import {
+  battleSeed,
   createRun,
   currentNode,
   encounterAt,
+  encounterSeed,
   finishBattle,
   optionsFor,
   shrineOffer,
@@ -186,7 +188,13 @@ function chooseNext(run: RunState, rng: Rng): number {
 }
 
 export function simulateRun(seed: number, policy: Policy = 'skilled'): RunOutcome {
-  const rng = createRng(seed);
+  // Route choice gets its own stream, and every node derives its encounter
+  // and its fight from the same seeds QuestScene uses. Sharing one mutable
+  // RNG across routing and combat left it at a different position for each
+  // policy — because a naive fight takes more turns — so skilled and naive
+  // walked different maps and the comparison measured route luck alongside
+  // strategy. Now the two differ only where the policy genuinely differs.
+  const routeRng = createRng(seed * 31 + 17);
   let run = createRun(seed);
   let fights = 0;
   let longestFight = 0;
@@ -196,15 +204,15 @@ export function simulateRun(seed: number, policy: Policy = 'skilled'): RunOutcom
     if (options.length === 0) {
       break;
     }
-    run = travelTo(run, chooseNext(run, rng));
+    run = travelTo(run, chooseNext(run, routeRng));
     const node = currentNode(run);
 
     switch (node.kind) {
       case 'battle':
       case 'elite':
       case 'boss': {
-        const foes = encounterAt(node, rng);
-        const fight = simulateBattle(run.party, foes, run.bag, policy, rng);
+        const foes = encounterAt(node, createRng(encounterSeed(run, node)));
+        const fight = simulateBattle(run.party, foes, run.bag, policy, createRng(battleSeed(run, node)));
         fights += 1;
         longestFight = Math.max(longestFight, fight.turns);
         if (fight.stalemate) {
@@ -226,10 +234,10 @@ export function simulateRun(seed: number, policy: Policy = 'skilled'): RunOutcom
         run = takeRest(run);
         break;
       case 'treasure':
-        run = openTreasure(run, rng).run;
+        run = openTreasure(run, createRng(encounterSeed(run, node))).run;
         break;
       case 'shrine':
-        run = takeBoon(run, shrineOffer(rng)[0]);
+        run = takeBoon(run, shrineOffer(createRng(encounterSeed(run, node)))[0]);
         break;
       default:
         break;

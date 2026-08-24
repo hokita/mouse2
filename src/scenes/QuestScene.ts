@@ -9,9 +9,11 @@ import { HEROES, heroStats } from '../core/rpg/party';
 import { createRng } from '../core/rpg/rng';
 import { SKILLS } from '../core/rpg/skills';
 import {
+  battleSeed,
   createRun,
   currentNode,
   encounterAt,
+  encounterSeed,
   finishBattle,
   isVictory,
   openTreasure,
@@ -307,7 +309,7 @@ export class QuestScene extends Phaser.Scene {
   }
 
   private resolveNode(node: MapNode): void {
-    const rng = createRng(this.run.seed * 977 + node.id);
+    const rng = createRng(encounterSeed(this.run, node));
 
     switch (node.kind) {
       case 'battle':
@@ -321,7 +323,7 @@ export class QuestScene extends Phaser.Scene {
             party: this.run.party,
             foes,
             bag: this.run.bag,
-            seed: this.run.seed + node.id,
+            seed: battleSeed(this.run, node),
             returnTo: 'QuestScene',
           });
         });

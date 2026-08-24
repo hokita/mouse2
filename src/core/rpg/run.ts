@@ -110,6 +110,23 @@ export function encounterAt(node: MapNode, rng: Rng): EnemyId[] {
   return encounterFor(node.tier, node.kind === 'elite', rng);
 }
 
+// A node's contents are fixed by the run and the node, never by how the
+// fight before it happened to go.
+//
+// These live here rather than at each call site because both the game and the
+// balance harness have to derive them the same way. When they did it
+// separately the harness drew encounters from a single mutable stream shared
+// with combat, so it was measuring a different distribution than the one that
+// ships — and a harness that simulates a game nobody plays certifies nothing.
+
+export function encounterSeed(run: RunState, node: MapNode): number {
+  return run.seed * 977 + node.id;
+}
+
+export function battleSeed(run: RunState, node: MapNode): number {
+  return run.seed + node.id;
+}
+
 export interface BattleResult {
   run: RunState;
   exp: number;
