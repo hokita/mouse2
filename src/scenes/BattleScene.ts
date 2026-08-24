@@ -32,6 +32,7 @@ import {
   PIP,
   elementColor,
   ensureGuardGlyph,
+  ensureSkillGlyph,
   ensureStatusPip,
   statusColor,
 } from '../ui/questTextures';
@@ -460,10 +461,16 @@ export class BattleScene extends Phaser.Scene {
         playSfx(this, 'guard');
         break;
       }
-      case 'cured':
-        playSfx(this, 'heal');
+      case 'cured': {
+        // Drew nothing at all until now, so a cleanse that found no ailment -
+        // a legal turn that costs MP - was indistinguishable from a tap the
+        // game had ignored. Found by auditing every event for visible output
+        // after this same shape turned up twice in review.
+        this.floatRing(event.target, event.cleared.length > 0);
+        playSfx(this, event.cleared.length > 0 ? 'heal' : 'guard');
         this.refresh();
         break;
+      }
       case 'guard': {
         // This used to call floatNumber with an empty string and size zero,
         // which returns immediately — so with the sound off, Guard produced
@@ -536,6 +543,25 @@ export class BattleScene extends Phaser.Scene {
       duration: 620,
       ease: 'Quad.easeOut',
       onComplete: () => shield.destroy(),
+    });
+  }
+
+  /** The broken ring of the cure skill, rising when it lifted something. */
+  private floatRing(targetId: string, worked: boolean): void {
+    const { x, y } = this.positionOf(targetId);
+    const ring = this.add
+      .image(x, y - 10, ensureSkillGlyph(this, 'ring'))
+      .setDisplaySize(30, 30)
+      .setTint(worked ? PALETTE.mint : PALETTE.muted)
+      .setAlpha(worked ? 1 : 0.6)
+      .setDepth(DEPTH.effects);
+    this.tweens.add({
+      targets: ring,
+      y: worked ? y - 52 : y + 14,
+      alpha: 0,
+      duration: worked ? 700 : 520,
+      ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
     });
   }
 

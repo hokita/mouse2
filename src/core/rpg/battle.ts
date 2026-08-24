@@ -77,7 +77,10 @@ export type BattleEvent =
   | { type: 'status'; target: string; status: StatusKind }
   | { type: 'statusFailed'; target: string; status: StatusKind }
   | { type: 'statusExpired'; target: string; status: StatusKind }
-  | { type: 'cured'; target: string }
+  // `cleared` is what actually came off. A cure that found nothing is still
+  // a legal, MP-spending turn, and the scene needs to be able to say so
+  // rather than draw nothing at all.
+  | { type: 'cured'; target: string; cleared: StatusKind[] }
   | { type: 'guard'; actor: string }
   | { type: 'asleep'; actor: string }
   | { type: 'down'; target: string }
@@ -233,8 +236,15 @@ function applySkill(draft: Draft, actor: Combatant, skill: Skill, chosen: string
     }
 
     if (skill.kind === 'cure') {
-      target.statuses = cureAilments(target.statuses);
-      draft.events.push({ type: 'cured', target: target.id });
+      const before = target.statuses;
+      target.statuses = cureAilments(before);
+      draft.events.push({
+        type: 'cured',
+        target: target.id,
+        cleared: before
+          .filter((status) => !target.statuses.some((kept) => kept.kind === status.kind))
+          .map((status) => status.kind),
+      });
     }
 
     // A status only sticks to someone still standing — otherwise a poison pip
@@ -275,8 +285,15 @@ function applyItem(draft: Draft, actor: Combatant, itemId: ItemId, chosen: strin
       draft.events.push({ type: 'mp', target: target.id, amount: applied });
     }
     if (item.cures) {
-      target.statuses = cureAilments(target.statuses);
-      draft.events.push({ type: 'cured', target: target.id });
+      const before = target.statuses;
+      target.statuses = cureAilments(before);
+      draft.events.push({
+        type: 'cured',
+        target: target.id,
+        cleared: before
+          .filter((status) => !target.statuses.some((kept) => kept.kind === status.kind))
+          .map((status) => status.kind),
+      });
     }
     if (item.flatDamage) {
       // A bomb is a bomb: the same hole whoever throws it, so it stays useful

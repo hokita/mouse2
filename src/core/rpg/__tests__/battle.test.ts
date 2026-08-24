@@ -188,6 +188,28 @@ describe('taking a turn', () => {
     expect(findCombatant(missed.state, 'foe:0')!.statuses).toEqual([]);
   });
 
+  it('says what a cure actually lifted, including nothing', () => {
+    // A cleanse that finds no ailment still costs MP and still ends the turn,
+    // so the scene has to be able to tell the two apart and draw both.
+    const party: Hero[] = createParty().map((h) => (h.id === 'warden' ? { ...h, level: 4 } : h));
+    const clean = until(createBattle(party, ['blob'], createRng(1)), 'hero:warden');
+
+    const nothing = takeTurn(clean, { kind: 'skill', skill: 'cleanse', target: 'hero:vanguard' }, flat);
+    expect(nothing.events.find((e) => e.type === 'cured')).toMatchObject({ cleared: [] });
+
+    const afflicted: BattleState = {
+      ...clean,
+      combatants: clean.combatants.map((c) =>
+        c.id === 'hero:vanguard'
+          ? { ...c, statuses: [{ kind: 'poison', turns: 3 }, { kind: 'regen', turns: 3 }] }
+          : c
+      ),
+    };
+    const lifted = takeTurn(afflicted, { kind: 'skill', skill: 'cleanse', target: 'hero:vanguard' }, flat);
+    // The blessing is not an ailment, so it is kept and not reported as lifted.
+    expect(lifted.events.find((e) => e.type === 'cured')).toMatchObject({ cleared: ['poison'] });
+  });
+
   it('reports an affliction that did not take, so a paid turn is never silent', () => {
     // `lull` deals no damage, so on a failed roll the turn used to produce no
     // event whatsoever - a legal, MP-spending command that the scene had
