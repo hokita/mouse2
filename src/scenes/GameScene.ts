@@ -16,6 +16,7 @@ import {
   bossArrived,
   bossCenter,
   bossRect,
+  bossSweptRect,
   damageBoss,
   destroyBoss,
   spawnBoss,
@@ -507,7 +508,7 @@ export class GameScene extends Phaser.Scene {
       // The boss is checked after ordinary enemies so a bullet never damages
       // both in one frame. Only once it is on station: shooting it out of
       // the sky during its entrance would rob the arrival of its beat.
-      if (this.boss && this.runPhase === 'boss' && intersects(bulletSwept, bossRect(this.boss))) {
+      if (this.boss && this.runPhase === 'boss' && intersects(bulletSwept, bossSweptRect(this.boss))) {
         bullet.destroy();
         if (damageBoss(this, this.boss, 1)) {
           this.triggerWin();

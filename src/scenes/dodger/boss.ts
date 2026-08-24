@@ -8,6 +8,7 @@ import type { SpawnerState } from '../../core/spawner';
 import { fanVelocities } from '../../core/spread';
 import { rectAt } from '../../core/collision';
 import type { Rect } from '../../core/collision';
+import { sweepX } from '../../core/sweep';
 import {
   BOSS_ARRIVAL_MS,
   BOSS_HEIGHT,
@@ -63,6 +64,8 @@ export interface Boss {
   barFrame: Phaser.GameObjects.Graphics;
   hp: number;
   phase: BossPhase;
+  /** hull.x as of the last frame, for sweeping the player-bullet check across the slide. */
+  prevX: number;
   /** Time on station, driving the slide. Not advanced during the descent. */
   elapsedMs: number;
   /** Time since the descent began, capped at BOSS_ARRIVAL_MS. */
@@ -123,6 +126,7 @@ export function spawnBoss(scene: Phaser.Scene): Boss {
     barFrame,
     hp: BOSS_MAX_HP,
     phase: 1,
+    prevX: minX,
     elapsedMs: 0,
     arrivalMs: 0,
     fireState: createSpawner(phase1.fireIntervalMs, phase1.fireIntervalMs),
@@ -147,6 +151,18 @@ export function bossRect(boss: Boss): Rect {
 }
 
 /**
+ * The hull's rect widened to cover the ground it crossed this frame.
+ *
+ * The hull slides up to ~18px in a capped frame, so an endpoint-only test
+ * drops grazing shots at its edges. The union is slightly generous at the
+ * corners, which errs toward awarding the kid their kill — the same call
+ * the ordinary enemies' collision makes.
+ */
+export function bossSweptRect(boss: Boss): Rect {
+  return sweepX(bossRect(boss), boss.prevX - BOSS_WIDTH / 2);
+}
+
+/**
  * Advances the boss a frame and returns any shots it fired.
  *
  * During the descent it neither slides nor fires — the arrival is a beat the
@@ -159,6 +175,11 @@ export function updateBoss(
   targetY: number
 ): BossShot[] {
   if (!bossArrived(boss)) {
+    // The hull doesn't move horizontally during the descent, but prevX must
+    // still track it here — otherwise the first on-station frame would sweep
+    // from a stale pre-descent x instead of where the hull actually was a
+    // moment ago.
+    boss.prevX = boss.hull.x;
     boss.arrivalMs = Math.min(BOSS_ARRIVAL_MS, boss.arrivalMs + dtMs);
     boss.hull.y = arrivalY(bossArrivalProgress(boss));
     boss.halo.x = boss.hull.x;
@@ -168,6 +189,7 @@ export function updateBoss(
 
   boss.elapsedMs += dtMs;
   const { minX, maxX } = slideBounds(WIDTH);
+  boss.prevX = boss.hull.x;
   boss.hull.x = slideX(boss.elapsedMs, boss.phase, minX, maxX);
   boss.halo.x = boss.hull.x;
   boss.halo.y = boss.hull.y;
@@ -208,7 +230,13 @@ export function updateBoss(
 /** Applies damage. Returns true if this was the killing blow. */
 export function damageBoss(scene: Phaser.Scene, boss: Boss, amount: number): boolean {
   boss.hp = Math.max(0, boss.hp - amount);
-  boss.barFill.width = (BAR_WIDTH * boss.hp) / BOSS_MAX_HP;
+  // setSize, not a bare `.width =` — this bar is square-cornered today so
+  // either reads the same on screen, but setSize also runs updateData() and
+  // updateDisplayOrigin(). If this bar ever grows rounded corners like its
+  // own frame does (RADIUS.pill, right beside it), the rounded WebGL path
+  // renders from pathData, which only updateData() rebuilds — a bare
+  // `.width =` would leave the fill frozen at full width. Free insurance.
+  boss.barFill.setSize((BAR_WIDTH * boss.hp) / BOSS_MAX_HP, BAR_HEIGHT);
 
   if (boss.hp <= 0) {
     return true;
