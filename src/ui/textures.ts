@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { SHARD_HEIGHT, SHARD_WIDTH } from '../core/field';
+import { BOSS_HEIGHT, BOSS_WIDTH } from '../core/boss';
 import { PALETTE, shade } from './theme';
 
 // Every sprite in the project is drawn here, once, into a canvas texture at
@@ -20,6 +21,7 @@ export const TEX = {
   topFade: 'fx-top-fade',
   beam: 'fx-beam',
   ship: 'dodger-ship',
+  boss: 'dodger-boss',
   grass: 'road-grass',
   asphalt: 'road-asphalt',
   laneDash: 'road-lane-dash',
@@ -231,6 +233,57 @@ export function ensureShardTexture(scene: Phaser.Scene, color: number): string {
 
     g.fillStyle(0xffffff, 0.75);
     g.fillCircle(w * 0.5, h * 0.28, 2.2);
+  });
+}
+
+/**
+ * The final boss's hull, drawn at exactly its collision box's size as the
+ * ship and the shards are.
+ *
+ * Deliberately the shard's silhouette inverted and widened: it reads as the
+ * same family of threat, one rank up, rather than as a creature from another
+ * game. Plated in a darkened rose so the phase tints (which brighten toward
+ * white) have somewhere to travel.
+ */
+export function ensureBossTexture(scene: Phaser.Scene): string {
+  return define(scene, TEX.boss, BOSS_WIDTH, BOSS_HEIGHT, (g) => {
+    const w = BOSS_WIDTH;
+    const h = BOSS_HEIGHT;
+    const base = shade(PALETTE.rose, -0.35);
+
+    // Wide, blunt wedge pointing down at the player.
+    const body: number[][] = [
+      [w * 0.08, 0],
+      [w * 0.92, 0],
+      [w, h * 0.38],
+      [w * 0.72, h * 0.88],
+      [w * 0.5, h],
+      [w * 0.28, h * 0.88],
+      [0, h * 0.38],
+    ];
+
+    fillPolygon(g, body, base);
+
+    // Armour plating: three bands across the hull, alternating light and
+    // shadow, so the body reads as solid rather than as a flat silhouette.
+    fillPolygon(g, [[w * 0.08, 0], [w * 0.92, 0], [w * 0.86, h * 0.22], [w * 0.14, h * 0.22]], 0xffffff, 0.16);
+    fillPolygon(g, [[w * 0.14, h * 0.22], [w * 0.86, h * 0.22], [w * 0.8, h * 0.5], [w * 0.2, h * 0.5]], 0x000000, 0.18);
+
+    // The core, and the two gun ports the fans come out of.
+    g.fillStyle(shade(PALETTE.rose, 0.5), 1);
+    g.fillCircle(w * 0.5, h * 0.52, h * 0.16);
+    g.fillStyle(0xffffff, 0.9);
+    g.fillCircle(w * 0.5, h * 0.52, h * 0.07);
+
+    g.fillStyle(shade(PALETTE.amber, -0.1), 1);
+    g.fillRect(w * 0.26, h * 0.62, w * 0.08, h * 0.14);
+    g.fillRect(w * 0.66, h * 0.62, w * 0.08, h * 0.14);
+
+    g.lineStyle(3, shade(PALETTE.rose, 0.25), 0.9);
+    g.strokePoints(
+      body.map(([x, y]) => new Phaser.Geom.Point(x, y)),
+      true
+    );
   });
 }
 

@@ -5,6 +5,24 @@ import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { spawnRange } from '../core/difficulty';
+import {
+  BOSS_CLEAR_FALL_MULTIPLIER,
+  BOSS_KILL_POINTS,
+  BOSS_TIME_MS,
+  bossPlayerFloor,
+  playerFloorForHull,
+} from '../core/boss';
+import {
+  bossArrived,
+  bossCenter,
+  bossRect,
+  bossSweptRect,
+  damageBoss,
+  destroyBoss,
+  spawnBoss,
+  updateBoss,
+} from './dodger/boss';
+import type { Boss } from './dodger/boss';
 import { fanVelocities } from '../core/spread';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
@@ -16,6 +34,7 @@ import type { LivesState } from '../core/lives';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE } from '../ui/theme';
 import {
+  ENEMY_BULLET_SPEED,
   ENEMY_FALL_SPEED,
   ENEMY_HEIGHT,
   ENEMY_SCALE,
@@ -54,6 +73,10 @@ const PLAYER_START_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
 const HUD_TOP = 18;
 const HUD_CLEARANCE = 18;
 const PLAYER_MIN_Y = HUD_TOP + STAT_PILL_HEIGHT + PLAYER_SIZE / 2 + HUD_CLEARANCE;
+// The floor the ship is pushed down to for the boss fight, derived from the
+// hull's own geometry so it cannot drift: without it there is a pocket above
+// the hull where the player sits out of reach of every downward fan.
+const PLAYER_BOSS_MIN_Y = bossPlayerFloor(PLAYER_SIZE, HUD_CLEARANCE);
 // ENEMY_SCALE, ENEMY_WIDTH, ENEMY_HEIGHT and ENEMY_FALL_SPEED come from
 // core/field: they set how hard the field is, and the tests that guard that
 // have to read the same numbers the game runs on.
@@ -94,18 +117,30 @@ const TANK_SPREAD_RADIANS = Phaser.Math.DegToRad(80);
 // has more margin, not less. The kill check sweeps both sides' frame motion
 // anyway, and the player's own path is swept exactly (core/sweptRect), so
 // nothing can tunnel through a collision target.
+//
+// The boss doesn't reopen this arithmetic: its hull is 120px tall, taller
+// than a tank, and stationary once on station rather than falling toward the
+// bullet — so the closing speed is the bullet's alone and the combined
+// height is larger. Both changes only add margin over the case above; a
+// reader auditing the cap does not need to redo the sums for the boss.
 const MAX_DELTA_MS = 100;
 const PLAYER_FIRE_INTERVAL_MS = 400;
 const PLAYER_BULLET_SPEED = 500;
 const PLAYER_BULLET_WIDTH = 8;
 const PLAYER_BULLET_HEIGHT = 16;
 const KILL_POINTS = 10;
-const ENEMY_BULLET_SPEED = 150;
 const ENEMY_BULLET_SIZE = 10;
 const STARTING_LIVES = 3;
 const INVINCIBILITY_MS = 1500;
 
-type GameState = 'playing' | 'gameOver';
+type GameState = 'playing' | 'gameOver' | 'won';
+
+/**
+ * Where in the run we are, kept separate from GameState (how it ended) so
+ * every existing `state === 'gameOver'` check keeps working untouched and a
+ * heart lost at any phase takes the same path it always did.
+ */
+type RunPhase = 'field' | 'clearing' | 'incoming' | 'boss';
 
 /** Enemy bullets travel on an arbitrary heading so tanks can fire a fan. */
 interface EnemyBullet {
@@ -154,6 +189,9 @@ export class GameScene extends Phaser.Scene {
   private state!: GameState;
   private dragging = false;
   private elapsedMs!: number;
+  private runPhase!: RunPhase;
+  private boss: Boss | null = null;
+  private playerFloor!: number;
 
   constructor() {
     super('GameScene');
@@ -231,7 +269,7 @@ export class GameScene extends Phaser.Scene {
       // it is up. Phaser will not hit-test them while the overlay is hidden
       // anyway, so this is a statement of intent, not the thing holding the
       // line.
-      isArmed: () => this.state === 'gameOver' && this.overlayShown,
+      isArmed: () => this.state !== 'playing' && this.overlayShown,
     });
 
     this.cameras.main.fadeIn(280, 0, 0, 0);
@@ -244,6 +282,12 @@ export class GameScene extends Phaser.Scene {
     this.overlay.hide();
     this.scoreState = createScore();
     this.elapsedMs = 0;
+    this.runPhase = 'field';
+    this.playerFloor = PLAYER_MIN_Y;
+    if (this.boss) {
+      destroyBoss(this.boss);
+      this.boss = null;
+    }
     const opening = spawnRange(0);
     this.spawnerState = createSpawner(opening.min, opening.max);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
@@ -287,15 +331,23 @@ export class GameScene extends Phaser.Scene {
     // axis-aligned whatever the sprite is doing.
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
 
-    const spawnResult = tickSpawner(this.spawnerState, safeDelta);
-    this.spawnerState = spawnResult.state;
-    if (spawnResult.shouldSpawn) {
-      this.spawnEnemy();
-      // Redraw the next wait from the range the run has reached. Rebuilding
-      // discards the spawner's sub-frame carryover, which is far smaller than
-      // the interval it is folded into.
-      const range = spawnRange(this.elapsedMs);
-      this.spawnerState = createSpawner(range.min, range.max);
+    if (this.runPhase === 'field') {
+      if (this.elapsedMs >= BOSS_TIME_MS) {
+        // Nothing else spawns from here on; the field on screen is the last
+        // of it.
+        this.runPhase = 'clearing';
+      } else {
+        const spawnResult = tickSpawner(this.spawnerState, safeDelta);
+        this.spawnerState = spawnResult.state;
+        if (spawnResult.shouldSpawn) {
+          this.spawnEnemy();
+          // Redraw the next wait from the range the run has reached.
+          // Rebuilding discards the spawner's sub-frame carryover, which is
+          // far smaller than the interval it is folded into.
+          const range = spawnRange(this.elapsedMs);
+          this.spawnerState = createSpawner(range.min, range.max);
+        }
+      }
     }
 
     if (this.dragging && this.input.activePointer.isDown) {
@@ -306,7 +358,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    const fallDistance = ENEMY_FALL_SPEED * (safeDelta / 1000);
+    // Tripled while clearing so the last enemy cannot hold the boss off for
+    // its full ~12.2s lifetime — see BOSS_CLEAR_FALL_MULTIPLIER.
+    const fallMultiplier = this.runPhase === 'clearing' ? BOSS_CLEAR_FALL_MULTIPLIER : 1;
+    const fallDistance = ENEMY_FALL_SPEED * fallMultiplier * (safeDelta / 1000);
     // The starfield drifts at a fraction of the enemy speed, so the
     // background reads as far away rather than as part of the hazard layer.
     this.stars.scroll(fallDistance * 0.22);
@@ -331,6 +386,41 @@ export class GameScene extends Phaser.Scene {
     // player's drag and hasn't moved yet, so testing it against that
     // historical path could consume a heart the player never earned.
     const firedThisFrame: EnemyBullet[] = [];
+    if (this.boss) {
+      const shots = updateBoss(this.boss, safeDelta, this.player.x, this.player.y);
+      if (this.runPhase === 'incoming') {
+        // The descending hull pushes the ship out of its space rather than
+        // teleporting it: a hard switch would snap the ship up to 188px.
+        //
+        // The floor is read off the hull's live position, NOT interpolated
+        // toward PLAYER_BOSS_MIN_Y in parallel: the descent eases
+        // quadratically, so a linear floor falls behind it in mid-descent and
+        // the hull overlaps the ship — a heart lost to the entrance itself.
+        this.playerFloor = Math.max(
+          PLAYER_MIN_Y,
+          playerFloorForHull(bossCenter(this.boss).y, PLAYER_SIZE, HUD_CLEARANCE)
+        );
+        this.player.y = Math.max(this.player.y, this.playerFloor);
+        if (bossArrived(this.boss)) {
+          this.runPhase = 'boss';
+          this.playerFloor = PLAYER_BOSS_MIN_Y;
+        }
+      }
+      for (const shot of shots) {
+        const rect = this.add.rectangle(
+          shot.x,
+          shot.y,
+          ENEMY_BULLET_SIZE,
+          ENEMY_BULLET_SIZE,
+          PALETTE.amber
+        );
+        rect.setDepth(DEPTH.world);
+        // Joins firedThisFrame, not enemyBullets, for the same reason the
+        // enemies' shots do: a bullet born this frame postdates the player's
+        // drag and must not be tested against that historical path.
+        firedThisFrame.push({ rect, vx: shot.vx, vy: shot.vy });
+      }
+    }
     for (const enemy of this.enemies) {
       enemy.prevX = enemy.sprite.x;
       enemy.elapsedMs += safeDelta;
@@ -345,7 +435,7 @@ export class GameScene extends Phaser.Scene {
       // killable. Waiting for the centre to clear the top edge gave anything
       // flying up near the spawn line a band it could never be shot from,
       // since every bullet travels downward.
-      if (enemyFire.shouldSpawn && this.isOnScreen(enemy)) {
+      if (enemyFire.shouldSpawn && this.isOnScreen(enemy) && this.runPhase !== 'clearing') {
         const shots =
           enemy.kind === 'tank'
             ? fanVelocities(TANK_SPREAD_COUNT, TANK_SPREAD_RADIANS, ENEMY_BULLET_SPEED)
@@ -403,11 +493,26 @@ export class GameScene extends Phaser.Scene {
         }
         this.explodeEnemy(target);
         this.enemies = this.enemies.filter((enemy) => enemy !== target);
-        this.scoreState = addPoints(
-          this.scoreState,
-          target.kind === 'tank' ? TANK_KILL_POINTS : KILL_POINTS
-        );
-        this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+        // Enemies leaving during the clearing sweep are worth no points on
+        // the way out — see the design doc. They still die and explode, so
+        // the sweep reads the same; only the score and pill are withheld.
+        if (this.runPhase !== 'clearing') {
+          this.scoreState = addPoints(
+            this.scoreState,
+            target.kind === 'tank' ? TANK_KILL_POINTS : KILL_POINTS
+          );
+          this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+        }
+        return false;
+      }
+      // The boss is checked after ordinary enemies so a bullet never damages
+      // both in one frame. Only once it is on station: shooting it out of
+      // the sky during its entrance would rob the arrival of its beat.
+      if (this.boss && this.runPhase === 'boss' && intersects(bulletSwept, bossSweptRect(this.boss))) {
+        bullet.destroy();
+        if (damageBoss(this, this.boss, 1)) {
+          this.triggerWin();
+        }
         return false;
       }
       // Only discard an off-screen bullet AFTER the swept check: a capped
@@ -470,6 +575,25 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    // This check is unreachable while the fight's geometry holds: once on
+    // station the hull spans y 140-260 and PLAYER_BOSS_MIN_Y (298) is derived
+    // from it with an 18px clearance, so the player rect always spans y
+    // 278-318 — a gap movingRectHitsRect can never close. That gap is
+    // deliberate (see PLAYER_BOSS_MIN_Y's comment: it is what stops the
+    // player parking in the pocket above the hull, not a bug to fix by
+    // shrinking it). This check stays anyway as a defensive guard, so that if
+    // a future change nudges the hull's station or the floor and reopens the
+    // possibility of contact, ramming costs a heart immediately rather than
+    // silently doing nothing while the comment still claims it works. Gated
+    // on the 'boss' phase, not on the boss merely existing: playerRect is
+    // captured, once, before the arrival push moves the ship — so during the
+    // descent it still holds the pre-push position the hull may overlap, and
+    // charging a heart for an overlap the push has already resolved would
+    // take a life the player could not have avoided.
+    if (!collided && this.boss && this.runPhase === 'boss') {
+      collided = movingRectHitsRect(prevPlayerRect, playerRect, bossRect(this.boss));
+    }
+
     this.prevPlayerX = this.player.x;
     this.prevPlayerY = this.player.y;
 
@@ -482,8 +606,17 @@ export class GameScene extends Phaser.Scene {
       return true;
     });
 
+    if (this.runPhase === 'clearing' && this.enemies.length === 0) {
+      this.startBossArrival();
+    }
+
     this.livesState = tickLives(this.livesState, safeDelta);
-    if (collided || shotByEnemy) {
+    // triggerWin() may already have fired earlier this same frame, in the
+    // player-bullet pass above: a boss bullet already in flight can still
+    // land a hit on the very tick the killing blow lands. The kill is
+    // resolved first in frame order, so a hit that arrives after it must not
+    // overwrite the win with a game over.
+    if ((collided || shotByEnemy) && this.state === 'playing') {
       const result = hit(this.livesState, INVINCIBILITY_MS);
       this.livesState = result.state;
       if (result.tookHit) {
@@ -525,7 +658,7 @@ export class GameScene extends Phaser.Scene {
   private movePlayerTo(x: number, y: number): void {
     const half = PLAYER_SIZE / 2;
     const next = Phaser.Math.Clamp(x, half, WIDTH - half);
-    const nextY = Phaser.Math.Clamp(y, PLAYER_MIN_Y, HEIGHT - half);
+    const nextY = Phaser.Math.Clamp(y, this.playerFloor, HEIGHT - half);
     // Bank into the turn — the ship leans toward wherever the thumb pulls it.
     // Horizontal only: a climb or dive should not roll the ship.
     const lean = Phaser.Math.Clamp((next - this.player.x) * 0.03, -0.28, 0.28);
@@ -645,8 +778,61 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** The field is gone; bring the boss in. */
+  private startBossArrival(): void {
+    this.runPhase = 'incoming';
+    this.boss = spawnBoss(this);
+    playSfx(this, 'levelup');
+    this.cameras.main.flash(220, 255, 95, 126);
+    this.cameras.main.shake(300, 0.006);
+  }
+
   private updateLivesPill(): void {
     this.livesPill.setValue('♥'.repeat(Math.max(0, this.livesState.lives)));
+  }
+
+  private triggerWin(): void {
+    this.state = 'won';
+    fadeOutMusic(this);
+    playSfx(this, 'explode');
+    playSfx(this, 'milestone');
+
+    this.scoreState = addPoints(this.scoreState, BOSS_KILL_POINTS);
+    this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
+
+    const boss = this.boss;
+    if (boss) {
+      const { x, y } = bossCenter(boss);
+      const burst = this.add.particles(x, y, TEX.spark, {
+        speed: { min: 120, max: 460 },
+        lifespan: { min: 400, max: 900 },
+        scale: { start: 1.1, end: 0 },
+        alpha: { start: 1, end: 0 },
+        tint: [PALETTE.rose, PALETTE.amber, PALETTE.text],
+        blendMode: 'ADD',
+        emitting: false,
+      });
+      burst.setDepth(DEPTH.effects);
+      burst.explode(48);
+      this.time.delayedCall(1200, () => burst.destroy());
+      destroyBoss(boss);
+      this.boss = null;
+    }
+
+    this.cameras.main.shake(420, 0.016);
+    this.cameras.main.flash(260, 255, 95, 126);
+    // The ship survives and the floor is released, so the win reads as the
+    // player being left alone on a clear screen.
+    this.playerFloor = PLAYER_MIN_Y;
+
+    // Let the explosion read before the card covers it, as GAME OVER does.
+    this.time.delayedCall(700, () => {
+      if (this.state !== 'won') {
+        return;
+      }
+      this.overlayShown = true;
+      this.overlay.show('YOU WIN', 'Score', `${getScoreValue(this.scoreState)}`);
+    });
   }
 
   private triggerGameOver(): void {

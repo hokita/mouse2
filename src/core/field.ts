@@ -20,6 +20,14 @@ export const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
 export const ENEMY_FALL_SPEED = 90;
 
 /**
+ * Shared speed for every enemy bullet — ordinary shards, tanks, and the
+ * boss alike — so the player only ever has to learn to read one bullet
+ * speed. Lives here rather than duplicated per-shooter so the three no
+ * longer risk drifting apart.
+ */
+export const ENEMY_BULLET_SPEED = 150;
+
+/**
  * How long an enemy is on screen: it spawns one body-height above the top edge
  * and despawns one below the bottom.
  */
