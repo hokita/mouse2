@@ -39,7 +39,17 @@ export const FOE = 104;
 /** Nodes on the campaign map. */
 export const NODE = 40;
 
-export const QUEST_TEX = {
+/**
+ * Texture keys. Deliberately not exported.
+ *
+ * Every one of these is only safe to name once something has generated it,
+ * and twice in review a component reached for a key whose generator had not
+ * run yet — Phaser binds the missing-texture fallback and never rebinds. The
+ * table stays module-local and every key is reachable only through an
+ * `ensure` that returns it, so naming a texture and generating it are the
+ * same act and the bug has nowhere left to live.
+ */
+const QUEST_TEX = {
   cmdAttack: 'sigil-cmd-attack',
   cmdSkill: 'sigil-cmd-skill',
   cmdGuard: 'sigil-cmd-guard',
@@ -272,16 +282,28 @@ export function ensureSkillGlyph(scene: Phaser.Scene, name: SkillGlyph): string 
 
 // --- commands -------------------------------------------------------------
 
+export type CommandGlyph = 'attack' | 'skill' | 'guard' | 'item';
+
 /**
  * The four buttons along the bottom. These four have to be legible cold, with
  * nothing else on screen to explain them, so each borrows a shape the player
  * has already met somewhere: a sword, a spark, a raised shield, a flask.
  */
-export function ensureCommandGlyphs(scene: Phaser.Scene): void {
-  glyph(scene, QUEST_TEX.cmdAttack, GLYPH, SKILL_SHAPES.blade);
-  glyph(scene, QUEST_TEX.cmdSkill, GLYPH, SKILL_SHAPES.burst);
-  ensureGuardGlyph(scene);
-  glyph(scene, QUEST_TEX.cmdItem, GLYPH, (g, s) => {
+export function ensureCommandGlyph(scene: Phaser.Scene, name: CommandGlyph): string {
+  switch (name) {
+    case 'attack':
+      return glyph(scene, QUEST_TEX.cmdAttack, GLYPH, SKILL_SHAPES.blade);
+    case 'skill':
+      return glyph(scene, QUEST_TEX.cmdSkill, GLYPH, SKILL_SHAPES.burst);
+    case 'guard':
+      return ensureGuardGlyph(scene);
+    default:
+      return ensureItemCommandGlyph(scene);
+  }
+}
+
+function ensureItemCommandGlyph(scene: Phaser.Scene): string {
+  return glyph(scene, QUEST_TEX.cmdItem, GLYPH, (g, s) => {
     const c = s / 2;
     g.fillStyle(INK, 1);
     g.fillRoundedRect(c - s * 0.09, s * 0.1, s * 0.18, s * 0.16, s * 0.04);
@@ -294,7 +316,6 @@ export function ensureCommandGlyphs(scene: Phaser.Scene): void {
     g.fillStyle(PALETTE.skyTop, 0.4);
     g.fillRect(c - s * 0.22, s * 0.5, s * 0.44, s * 0.14);
   });
-  ensureTargetRing(scene);
 }
 
 /**

@@ -8,9 +8,8 @@ import { PALETTE, RADIUS, displayStyle } from '../../ui/theme';
 import { DEPTH, containerHitArea } from '../../ui/widgets';
 import {
   GLYPH,
-  QUEST_TEX,
   elementColor,
-  ensureCommandGlyphs,
+  ensureCommandGlyph,
   ensureItemGlyph,
   ensureSkillGlyph,
 } from '../../ui/questTextures';
@@ -55,8 +54,6 @@ interface Button {
 }
 
 export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: number): CommandBar {
-  ensureCommandGlyphs(scene);
-
   const container = scene.add.container(0, 0).setDepth(DEPTH.hud);
   const tray = scene.add.container(0, baseY - TRAY_H - 8).setDepth(DEPTH.hud).setVisible(false);
   container.add(tray);
@@ -89,10 +86,10 @@ export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: num
   container.add(commandRow);
 
   const commandSpecs: { texture: string; open: 'skill' | 'item' | null; choice: Choice }[] = [
-    { texture: QUEST_TEX.cmdAttack, open: null, choice: { kind: 'attack' } },
-    { texture: QUEST_TEX.cmdSkill, open: 'skill', choice: { kind: 'attack' } },
-    { texture: QUEST_TEX.cmdGuard, open: null, choice: { kind: 'guard' } },
-    { texture: QUEST_TEX.cmdItem, open: 'item', choice: { kind: 'attack' } },
+    { texture: ensureCommandGlyph(scene, 'attack'), open: null, choice: { kind: 'attack' } },
+    { texture: ensureCommandGlyph(scene, 'skill'), open: 'skill', choice: { kind: 'attack' } },
+    { texture: ensureCommandGlyph(scene, 'guard'), open: null, choice: { kind: 'guard' } },
+    { texture: ensureCommandGlyph(scene, 'item'), open: 'item', choice: { kind: 'attack' } },
   ];
 
   const gap = (WIDTH - commandSpecs.length * BUTTON_W) / (commandSpecs.length + 1);
