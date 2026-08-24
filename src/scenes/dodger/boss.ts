@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playSfx } from '../../audio/bus';
 import { WIDTH } from '../../gameConfig';
 import { PALETTE, shade } from '../../ui/theme';
 import { DEPTH } from '../../ui/widgets';
@@ -258,6 +259,11 @@ export function damageBoss(scene: Phaser.Scene, boss: Boss, amount: number): boo
     boss.hull.setTint(PHASE_TINT[nextPhase]);
     boss.halo.setTint(PHASE_TINT[nextPhase]);
     scene.cameras.main.shake(180, 0.008);
+    // The phase change has to land in sound as well as in colour: the tint
+    // shift is easy to miss mid-fight with the hull already flashing white
+    // on every hit, and a child who cannot read the health bar's position
+    // has nothing else telling them the fight just got harder.
+    playSfx(scene, 'milestone');
   }
 
   // Each flash owns its timer and cancels the one before it, so a fast
