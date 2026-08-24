@@ -204,3 +204,22 @@ describe('restHero', () => {
     expect(isAlive(restHero({ ...vanguard(), hp: 0 }))).toBe(true);
   });
 });
+
+describe('shrine bonuses', () => {
+  it('lifts the stat it names and leaves the rest alone', () => {
+    const plain = vanguard();
+    const blessed: Hero = { ...plain, bonus: { maxHp: 12 } };
+    expect(heroStats(blessed).maxHp).toBe(heroStats(plain).maxHp + 12);
+    expect(heroStats(blessed).atk).toBe(heroStats(plain).atk);
+  });
+
+  it('survives a level up without being paid out twice', () => {
+    // The level-up HP grant is a difference of two stat blocks. If one side
+    // counted the bonus and the other did not, every level would re-award it.
+    const blessed: Hero = { ...vanguard(), bonus: { maxHp: 12 } };
+    const beforeMax = heroStats(blessed).maxHp;
+    const { hero } = awardExp(blessed, expToReach(2));
+    expect(heroStats(hero).maxHp).toBe(beforeMax + HEROES.vanguard.growth.maxHp);
+    expect(hero.hp).toBe(blessed.hp + HEROES.vanguard.growth.maxHp);
+  });
+});

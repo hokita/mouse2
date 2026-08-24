@@ -39,6 +39,15 @@ export interface Hero {
   hp: number;
   mp: number;
   statuses: Status[];
+  /**
+   * Permanent gains banked from shrines, on top of the level curve.
+   *
+   * Kept separate from `level` rather than folded into it so a shrine is not
+   * silently competing with a fight for the same reward. The player who
+   * routes past three shrines and the player who routes past three elites
+   * both get stronger, in visibly different ways.
+   */
+  bonus: Partial<Stats>;
 }
 
 /** A hero picked up after a won fight comes back on their feet, but only just. */
@@ -48,8 +57,8 @@ export const HEROES: Record<HeroId, HeroDef> = {
   vanguard: {
     id: 'vanguard',
     sigil: 'diamond',
-    base: { maxHp: 46, maxMp: 8, atk: 15, mag: 4, def: 12, spd: 8 },
-    growth: { maxHp: 7, maxMp: 1, atk: 2, mag: 1, def: 2, spd: 1 },
+    base: { maxHp: 46, maxMp: 10, atk: 18, mag: 4, def: 12, spd: 8 },
+    growth: { maxHp: 7, maxMp: 2, atk: 3, mag: 1, def: 2, spd: 1 },
     learnset: [
       { level: 1, skill: 'ember' },
       { level: 3, skill: 'cleave' },
@@ -93,7 +102,16 @@ export const PARTY_ORDER: HeroId[] = ['vanguard', 'caster', 'warden'];
 
 export function heroStats(hero: Hero): Stats {
   const def = HEROES[hero.id];
-  return statsAtLevel(def.base, def.growth, hero.level);
+  const leveled = statsAtLevel(def.base, def.growth, hero.level);
+  const bonus = hero.bonus;
+  return {
+    maxHp: leveled.maxHp + (bonus.maxHp ?? 0),
+    maxMp: leveled.maxMp + (bonus.maxMp ?? 0),
+    atk: leveled.atk + (bonus.atk ?? 0),
+    mag: leveled.mag + (bonus.mag ?? 0),
+    def: leveled.def + (bonus.def ?? 0),
+    spd: leveled.spd + (bonus.spd ?? 0),
+  };
 }
 
 export function learnedSkills(hero: Hero): SkillId[] {
@@ -109,7 +127,7 @@ export function isAlive(hero: Hero): boolean {
 export function createParty(): Hero[] {
   return PARTY_ORDER.map((id) => {
     const stats = statsAtLevel(HEROES[id].base, HEROES[id].growth, 1);
-    return { id, level: 1, exp: 0, hp: stats.maxHp, mp: stats.maxMp, statuses: [] };
+    return { id, level: 1, exp: 0, hp: stats.maxHp, mp: stats.maxMp, statuses: [], bonus: {} };
   });
 }
 
@@ -143,7 +161,7 @@ export function awardExp(hero: Hero, amount: number): ExpResult {
   }
 
   const before = heroStats(hero);
-  const after = statsAtLevel(HEROES[hero.id].base, HEROES[hero.id].growth, level);
+  const after = heroStats({ ...hero, level });
   // Guard the fallen: adding the new maximum to a hero at 0 HP would stand
   // them back up mid-battle, out of nowhere, with no animation to explain it.
   const standing = isAlive(hero);
