@@ -5,7 +5,20 @@ import type { ScoreState } from '../core/score';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { spawnRange } from '../core/difficulty';
-import { BOSS_CLEAR_FALL_MULTIPLIER, BOSS_TIME_MS } from '../core/boss';
+import {
+  BOSS_CLEAR_FALL_MULTIPLIER,
+  BOSS_TIME_MS,
+  bossPlayerFloor,
+  playerFloorForHull,
+} from '../core/boss';
+import {
+  bossArrived,
+  bossCenter,
+  destroyBoss,
+  spawnBoss,
+  updateBoss,
+} from './dodger/boss';
+import type { Boss } from './dodger/boss';
 import { fanVelocities } from '../core/spread';
 import { intersects, rectAt } from '../core/collision';
 import type { Rect } from '../core/collision';
@@ -55,6 +68,10 @@ const PLAYER_START_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
 const HUD_TOP = 18;
 const HUD_CLEARANCE = 18;
 const PLAYER_MIN_Y = HUD_TOP + STAT_PILL_HEIGHT + PLAYER_SIZE / 2 + HUD_CLEARANCE;
+// The floor the ship is pushed down to for the boss fight, derived from the
+// hull's own geometry so it cannot drift: without it there is a pocket above
+// the hull where the player sits out of reach of every downward fan.
+const PLAYER_BOSS_MIN_Y = bossPlayerFloor(PLAYER_SIZE, HUD_CLEARANCE);
 // ENEMY_SCALE, ENEMY_WIDTH, ENEMY_HEIGHT and ENEMY_FALL_SPEED come from
 // core/field: they set how hard the field is, and the tests that guard that
 // have to read the same numbers the game runs on.
@@ -163,6 +180,8 @@ export class GameScene extends Phaser.Scene {
   private dragging = false;
   private elapsedMs!: number;
   private runPhase!: RunPhase;
+  private boss: Boss | null = null;
+  private playerFloor!: number;
 
   constructor() {
     super('GameScene');
@@ -254,6 +273,11 @@ export class GameScene extends Phaser.Scene {
     this.scoreState = createScore();
     this.elapsedMs = 0;
     this.runPhase = 'field';
+    this.playerFloor = PLAYER_MIN_Y;
+    if (this.boss) {
+      destroyBoss(this.boss);
+      this.boss = null;
+    }
     const opening = spawnRange(0);
     this.spawnerState = createSpawner(opening.min, opening.max);
     this.fireState = createSpawner(PLAYER_FIRE_INTERVAL_MS, PLAYER_FIRE_INTERVAL_MS);
@@ -352,6 +376,27 @@ export class GameScene extends Phaser.Scene {
     // player's drag and hasn't moved yet, so testing it against that
     // historical path could consume a heart the player never earned.
     const firedThisFrame: EnemyBullet[] = [];
+    if (this.boss) {
+      updateBoss(this, this.boss, safeDelta, this.player.x, this.player.y);
+      if (this.runPhase === 'incoming') {
+        // The descending hull pushes the ship out of its space rather than
+        // teleporting it: a hard switch would snap the ship up to 188px.
+        //
+        // The floor is read off the hull's live position, NOT interpolated
+        // toward PLAYER_BOSS_MIN_Y in parallel: the descent eases
+        // quadratically, so a linear floor falls behind it in mid-descent and
+        // the hull overlaps the ship — a heart lost to the entrance itself.
+        this.playerFloor = Math.max(
+          PLAYER_MIN_Y,
+          playerFloorForHull(bossCenter(this.boss).y, PLAYER_SIZE, HUD_CLEARANCE)
+        );
+        this.player.y = Math.max(this.player.y, this.playerFloor);
+        if (bossArrived(this.boss)) {
+          this.runPhase = 'boss';
+          this.playerFloor = PLAYER_BOSS_MIN_Y;
+        }
+      }
+    }
     for (const enemy of this.enemies) {
       enemy.prevX = enemy.sprite.x;
       enemy.elapsedMs += safeDelta;
@@ -503,6 +548,10 @@ export class GameScene extends Phaser.Scene {
       return true;
     });
 
+    if (this.runPhase === 'clearing' && this.enemies.length === 0) {
+      this.startBossArrival();
+    }
+
     this.livesState = tickLives(this.livesState, safeDelta);
     if (collided || shotByEnemy) {
       const result = hit(this.livesState, INVINCIBILITY_MS);
@@ -546,7 +595,7 @@ export class GameScene extends Phaser.Scene {
   private movePlayerTo(x: number, y: number): void {
     const half = PLAYER_SIZE / 2;
     const next = Phaser.Math.Clamp(x, half, WIDTH - half);
-    const nextY = Phaser.Math.Clamp(y, PLAYER_MIN_Y, HEIGHT - half);
+    const nextY = Phaser.Math.Clamp(y, this.playerFloor, HEIGHT - half);
     // Bank into the turn — the ship leans toward wherever the thumb pulls it.
     // Horizontal only: a climb or dive should not roll the ship.
     const lean = Phaser.Math.Clamp((next - this.player.x) * 0.03, -0.28, 0.28);
@@ -664,6 +713,15 @@ export class GameScene extends Phaser.Scene {
         enemy.sprite.clearTint();
       }
     });
+  }
+
+  /** The field is gone; bring the boss in. */
+  private startBossArrival(): void {
+    this.runPhase = 'incoming';
+    this.boss = spawnBoss(this);
+    playSfx(this, 'levelup');
+    this.cameras.main.flash(220, 255, 95, 126);
+    this.cameras.main.shake(300, 0.006);
   }
 
   private updateLivesPill(): void {
