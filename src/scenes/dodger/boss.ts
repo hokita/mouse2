@@ -3,7 +3,7 @@ import { WIDTH } from '../../gameConfig';
 import { PALETTE, shade } from '../../ui/theme';
 import { DEPTH } from '../../ui/widgets';
 import { TEX, ensureBossTexture, ensureFxTextures } from '../../ui/textures';
-import { createSpawner, tickSpawner } from '../../core/spawner';
+import { createSpawner, retuneSpawner, tickSpawner } from '../../core/spawner';
 import type { SpawnerState } from '../../core/spawner';
 import { fanVelocities } from '../../core/spread';
 import { rectAt } from '../../core/collision';
@@ -108,6 +108,10 @@ export function spawnBoss(scene: Phaser.Scene): Boss {
     .setDepth(DEPTH.hud);
 
   const phase1 = BOSS_PHASES[1];
+  // Phase 3 is the only phase that aims, so its interval is the only one this
+  // spawner ever needs — derived from the tuning table rather than a second
+  // literal, so retuning BOSS_PHASES[3] can't silently desync from it.
+  const aimedIntervalMs = BOSS_PHASES[3].aimedIntervalMs ?? 2200;
   return {
     hull,
     halo,
@@ -118,7 +122,7 @@ export function spawnBoss(scene: Phaser.Scene): Boss {
     elapsedMs: 0,
     arrivalMs: 0,
     fireState: createSpawner(phase1.fireIntervalMs, phase1.fireIntervalMs),
-    aimedState: createSpawner(2200, 2200),
+    aimedState: createSpawner(aimedIntervalMs, aimedIntervalMs),
   };
 }
 
@@ -211,7 +215,7 @@ export function damageBoss(scene: Phaser.Scene, boss: Boss, amount: number): boo
   if (nextPhase !== boss.phase) {
     boss.phase = nextPhase;
     const spec = BOSS_PHASES[nextPhase];
-    boss.fireState = createSpawner(spec.fireIntervalMs, spec.fireIntervalMs);
+    boss.fireState = retuneSpawner(boss.fireState, spec.fireIntervalMs, spec.fireIntervalMs);
     boss.hull.setTint(PHASE_TINT[nextPhase]);
     boss.halo.setTint(PHASE_TINT[nextPhase]);
     scene.cameras.main.shake(180, 0.008);
