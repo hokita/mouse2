@@ -14,6 +14,8 @@ import {
 import {
   bossArrived,
   bossCenter,
+  bossRect,
+  damageBoss,
   destroyBoss,
   spawnBoss,
   updateBoss,
@@ -377,7 +379,7 @@ export class GameScene extends Phaser.Scene {
     // historical path could consume a heart the player never earned.
     const firedThisFrame: EnemyBullet[] = [];
     if (this.boss) {
-      updateBoss(this, this.boss, safeDelta, this.player.x, this.player.y);
+      const shots = updateBoss(this, this.boss, safeDelta, this.player.x, this.player.y);
       if (this.runPhase === 'incoming') {
         // The descending hull pushes the ship out of its space rather than
         // teleporting it: a hard switch would snap the ship up to 188px.
@@ -395,6 +397,20 @@ export class GameScene extends Phaser.Scene {
           this.runPhase = 'boss';
           this.playerFloor = PLAYER_BOSS_MIN_Y;
         }
+      }
+      for (const shot of shots) {
+        const rect = this.add.rectangle(
+          shot.x,
+          shot.y,
+          ENEMY_BULLET_SIZE,
+          ENEMY_BULLET_SIZE,
+          PALETTE.amber
+        );
+        rect.setDepth(DEPTH.world);
+        // Joins firedThisFrame, not enemyBullets, for the same reason the
+        // enemies' shots do: a bullet born this frame postdates the player's
+        // drag and must not be tested against that historical path.
+        firedThisFrame.push({ rect, vx: shot.vx, vy: shot.vy });
       }
     }
     for (const enemy of this.enemies) {
@@ -476,6 +492,16 @@ export class GameScene extends Phaser.Scene {
         this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
         return false;
       }
+      // The boss is checked after ordinary enemies so a bullet never damages
+      // both in one frame. Only once it is on station: shooting it out of
+      // the sky during its entrance would rob the arrival of its beat.
+      if (this.boss && this.runPhase === 'boss' && intersects(bulletSwept, bossRect(this.boss))) {
+        bullet.destroy();
+        if (damageBoss(this, this.boss, 1)) {
+          this.triggerWin();
+        }
+        return false;
+      }
       // Only discard an off-screen bullet AFTER the swept check: a capped
       // frame can carry a bullet past the top edge while crossing an enemy
       // that has just peeked in, and that crossing must still award the kill.
@@ -534,6 +560,19 @@ export class GameScene extends Phaser.Scene {
         const rect = this.enemyRect(enemy);
         return intersects(playerRect, sweepY(rect, rect.y - fallDistance));
       });
+    }
+
+    // Ramming the hull costs a heart. Tested against the player's swept path
+    // as the enemies are, so a fast drag into the boss cannot tunnel through
+    // it. Gated on the 'boss' phase, not on the boss merely existing:
+    // playerRect is captured, once, before the arrival push moves the ship —
+    // so during the descent it still holds the pre-push position the hull
+    // may overlap. Charging a heart for an overlap the push has already
+    // resolved would take a life the player could not have avoided. The hull
+    // only becomes solid once the boss is on station and the ship's floor is
+    // fixed.
+    if (!collided && this.boss && this.runPhase === 'boss') {
+      collided = movingRectHitsRect(prevPlayerRect, playerRect, bossRect(this.boss));
     }
 
     this.prevPlayerX = this.player.x;
@@ -726,6 +765,10 @@ export class GameScene extends Phaser.Scene {
 
   private updateLivesPill(): void {
     this.livesPill.setValue('♥'.repeat(Math.max(0, this.livesState.lives)));
+  }
+
+  private triggerWin(): void {
+    this.state = 'gameOver';
   }
 
   private triggerGameOver(): void {
