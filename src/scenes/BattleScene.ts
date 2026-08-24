@@ -186,6 +186,9 @@ export class BattleScene extends Phaser.Scene {
     if (this.busy) {
       return;
     }
+    // Whatever was being aimed is abandoned. The command row stays live
+    // through targeting precisely so a player can change their mind.
+    this.clearAim();
 
     if (choice.kind === 'guard') {
       this.resolve({ kind: 'guard' });
@@ -227,8 +230,15 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Waits for the player to point at somebody.
+   *
+   * The command row is deliberately left on screen. Hiding it would strand
+   * anyone who opened the skill tray, picked a spell and then changed their
+   * mind: this game has no back button in a fight, so the only way out of
+   * targeting has to be choosing something else.
+   */
   private aim(ids: string[], side: 'foes' | 'party', onPick: (id: string) => void): void {
-    this.commands.hide();
     const pick = (id: string): void => {
       this.clearAim();
       playSfx(this, 'tap');

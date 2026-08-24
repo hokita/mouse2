@@ -721,7 +721,7 @@ export function ensureFoeTexture(scene: Phaser.Scene, shape: EnemyShape): string
  * they lean on conventions the player already owns from every other app on
  * the phone — a circling arrow means again, a house means out.
  */
-export type UiGlyph = 'replay' | 'home' | 'check' | 'pin';
+export type UiGlyph = 'replay' | 'home' | 'check' | 'pin' | 'up';
 
 const UI_SHAPES: Record<UiGlyph, Draw> = {
   replay: (g, s) => {
@@ -746,6 +746,12 @@ const UI_SHAPES: Record<UiGlyph, Draw> = {
   },
   check: (g, s) => {
     line(g, [[s * 0.2, s * 0.52], [s * 0.42, s * 0.74], [s * 0.8, s * 0.26]], s * 0.13);
+  },
+  up: (g, s) => {
+    const c = s / 2;
+    poly(g, [[c, s * 0.1], [c + s * 0.3, s * 0.46], [c - s * 0.3, s * 0.46]]);
+    g.fillStyle(INK, 1);
+    g.fillRoundedRect(c - s * 0.11, s * 0.44, s * 0.22, s * 0.34, s * 0.05);
   },
   pin: (g, s) => {
     const c = s / 2;

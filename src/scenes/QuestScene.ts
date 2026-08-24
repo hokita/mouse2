@@ -32,7 +32,6 @@ import {
   ensureHeroSigil,
   ensureNodeGlyph,
   ensureSkillGlyph,
-  ensureStatusPip,
   ensureUiGlyph,
 } from '../ui/questTextures';
 import { createNodeCard } from './quest/nodeCard';
@@ -72,6 +71,14 @@ export class QuestScene extends Phaser.Scene {
   private settled = false;
   /** Levels gained in the fight just finished, waiting to be celebrated. */
   private pendingLevelUps: LevelUp[] = [];
+  /**
+   * True between stepping onto a node and that node resolving.
+   *
+   * The map is redrawn the moment the party moves, which re-arms whatever the
+   * new node leads to — so without this a second tap during the step could
+   * move them on again and the node they landed on would never resolve.
+   */
+  private moving = false;
 
   constructor() {
     super('QuestScene');
@@ -79,6 +86,7 @@ export class QuestScene extends Phaser.Scene {
 
   init(data: QuestSceneData): void {
     this.settled = false;
+    this.moving = false;
     this.pendingLevelUps = [];
 
     if (data.battle && data.foes && this.run) {
@@ -228,7 +236,7 @@ export class QuestScene extends Phaser.Scene {
       );
     }
 
-    if (reachable && !this.settled) {
+    if (reachable && !this.settled && !this.moving) {
       root.setSize(radius * 2 + 16, radius * 2 + 16);
       root.setInteractive(containerHitArea(radius * 2 + 16, radius * 2 + 16));
       root.once('pointerdown', () => this.travel(node));
@@ -287,9 +295,10 @@ export class QuestScene extends Phaser.Scene {
   }
 
   private travel(node: MapNode): void {
-    if (this.settled) {
+    if (this.settled || this.moving) {
       return;
     }
+    this.moving = true;
     playSfx(this, 'tap');
     this.run = travelTo(this.run, node.id);
     this.drawMap();
@@ -364,7 +373,7 @@ export class QuestScene extends Phaser.Scene {
       const x = slot * index + slot / 2 - 44;
 
       const arrow = this.add
-        .image(x, PARTY_STRIP_Y, ensureStatusPip(this, 'regen'))
+        .image(x, PARTY_STRIP_Y, ensureUiGlyph(this, 'up'))
         .setDisplaySize(22, 22)
         .setTint(PALETTE.gold)
         .setDepth(DEPTH.effects);
@@ -400,6 +409,7 @@ export class QuestScene extends Phaser.Scene {
   }
 
   private afterCard(): void {
+    this.moving = false;
     this.drawParty();
     this.offerMoves();
   }
