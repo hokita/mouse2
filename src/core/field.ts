@@ -12,8 +12,12 @@ import { HEIGHT } from '../gameConfig';
 export const SHARD_WIDTH = 30;
 export const SHARD_HEIGHT = 50;
 
-/** ~50px-wide targets, the size a 3-5 year old can actually hit. */
-export const ENEMY_SCALE = 5 / 3;
+/**
+ * ~42px-wide targets. Down from 5/3 (50px): at that size the field read as
+ * crowded — the bodies, not the gaps, were what a child saw — while still
+ * being comfortably wide enough to shoot at 3-5 years old.
+ */
+export const ENEMY_SCALE = 1.4;
 export const ENEMY_WIDTH = SHARD_WIDTH * ENEMY_SCALE;
 export const ENEMY_HEIGHT = SHARD_HEIGHT * ENEMY_SCALE;
 

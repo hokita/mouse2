@@ -9,13 +9,15 @@
 const deg = (degrees: number): number => (degrees * Math.PI) / 180;
 
 /**
- * 45 HP. At PLAYER_FIRE_INTERVAL_MS of 400 the player lands 2.5 bullets a
- * second, so this is 18s of perfect uptime and 25-35s of realistic play. It
- * divides into three phases of exactly 15 hits, each roughly 10s — long
- * enough that every phase registers, short enough to hold a small child's
- * attention.
+ * 90 HP. At PLAYER_FIRE_INTERVAL_MS of 400 the player lands 2.5 bullets a
+ * second, so this is 36s of perfect uptime and 50-70s of realistic play. It
+ * divides into three phases of exactly 30 hits, each roughly 20s.
+ *
+ * Doubled from the original 45 deliberately: the fight now starts at 60s
+ * rather than 90s, so the run's total length is about what it was, but more
+ * of it is spent on the boss and less on the field.
  */
-export const BOSS_MAX_HP = 45;
+export const BOSS_MAX_HP = 90;
 
 export const BOSS_WIDTH = 230;
 export const BOSS_HEIGHT = 120;
@@ -30,19 +32,20 @@ export const BOSS_EDGE_MARGIN = 16;
 
 /**
  * When the boss comes. The spawn interval reaches its 700-1000ms floor at
- * 60s, so the player gets 30s at full field pressure first. A time trigger
- * rather than a score one means every run is the same length and a child who
- * survives always reaches the boss.
+ * exactly 60s, so the boss arrives the moment the field stops escalating —
+ * the fight, not the last 30s of an unchanging field, is what carries the
+ * back half of the run. A time trigger rather than a score one means every
+ * run is the same length and a child who survives always reaches the boss.
  */
-export const BOSS_TIME_MS = 90_000;
+export const BOSS_TIME_MS = 60_000;
 
 /**
  * How much faster the leftover field falls once the boss is due.
  *
  * An enemy lives (HEIGHT + 2 * ENEMY_HEIGHT) / ENEMY_FALL_SPEED seconds —
- * about 12.2s. One that spawned just before the 90s mark would hold the boss
+ * about 11.9s. One that spawned just before the 60s mark would hold the boss
  * off for that whole time, which is a stall, not a dramatic beat. Tripling
- * caps the wait at about 4.1s while still reading as the field falling away
+ * caps the wait at about 4.0s while still reading as the field falling away
  * rather than being deleted.
  */
 export const BOSS_CLEAR_FALL_MULTIPLIER = 3;
