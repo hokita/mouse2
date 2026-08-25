@@ -86,9 +86,16 @@ export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: num
   const commandRow = scene.add.container(0, baseY);
   container.add(commandRow);
 
+  // Both faces of the second button are generated up front. Building one
+  // lazily when a caster first steps up would mean asking Phaser for a
+  // texture mid-fight, and a key requested before its generator has run binds
+  // to the missing-texture fallback for good.
+  const rodTexture = ensureCommandGlyph(scene, 'skill');
+  const mightTexture = ensureCommandGlyph(scene, 'might');
+
   const commandSpecs: { texture: string; open: 'skill' | 'item' | null; choice: Choice }[] = [
     { texture: ensureCommandGlyph(scene, 'attack'), open: null, choice: { kind: 'attack' } },
-    { texture: ensureCommandGlyph(scene, 'skill'), open: 'skill', choice: { kind: 'attack' } },
+    { texture: rodTexture, open: 'skill', choice: { kind: 'attack' } },
     { texture: ensureCommandGlyph(scene, 'guard'), open: null, choice: { kind: 'guard' } },
     { texture: ensureCommandGlyph(scene, 'item'), open: 'item', choice: { kind: 'attack' } },
   ];
@@ -200,6 +207,15 @@ export function createCommandBar(scene: Phaser.Scene, baseY: number, accent: num
       onChooseNow = onChoose;
       closeTray();
       container.setVisible(true);
+
+      // The second button wears a rod for whoever casts and a fist for
+      // whoever swings. The test is the stat, not the colour: the daughter's
+      // whole kit is `plain` and she is still unmistakably a caster, so
+      // asking "does this carry an element" handed her a fist. Asking what
+      // the skill runs on splits the party where it actually divides —
+      // everything the father does is `atk`, everything she does is `mag`.
+      const casts = learned.some((id) => SKILLS[id].stat === 'mag');
+      commandButtons[1].icon.setTexture(casts ? rodTexture : mightTexture);
 
       commandButtons.forEach((button, index) => {
         const spec = commandSpecs[index];

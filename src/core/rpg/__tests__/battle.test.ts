@@ -103,12 +103,14 @@ describe('taking a turn', () => {
   });
 
   it('reports a resisted hit too', () => {
-    // An imp shrugs off fire.
-    const withFlare: Hero[] = createParty().map((h) =>
+    // An imp is fire, and fire burns leaf — so leaf is the bolt it shrugs
+    // off. Casting fire at it would be neither: the third case in a triangle
+    // is a colour meeting its own kind, which is simply a hit.
+    const withBolts: Hero[] = createParty().map((h) =>
       h.id === 'mom' ? { ...h, level: 4 } : h
     );
-    const ready = until(createBattle(withFlare, ['imp'], createRng(1)), 'hero:mom');
-    const { events } = takeTurn(ready, { kind: 'skill', skill: 'flare', target: 'foe:0' }, flat);
+    const ready = until(createBattle(withBolts, ['imp'], createRng(1)), 'hero:mom');
+    const { events } = takeTurn(ready, { kind: 'skill', skill: 'thorn', target: 'foe:0' }, flat);
     expect(events.find((e) => e.type === 'damage')).toMatchObject({ band: 'resist' });
   });
 

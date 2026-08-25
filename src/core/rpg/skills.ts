@@ -52,11 +52,11 @@ export interface Skill {
   /**
    * Which stat the skill swings.
    *
-   * Stated rather than inferred from the element, because the Warrior's
-   * `ember` is a burning sword: it carries fire so it reads red and hits a
-   * fire weakness, but it is muscle behind it. Inferring `mag` from the
-   * colour would hand the game's heaviest hitter a skill powered by its
-   * worst stat.
+   * Stated rather than inferred, because colour does not decide it and
+   * neither does its absence. Everything the father throws is `plain` and
+   * runs on `atk`; everything the daughter throws is `plain` too and runs on
+   * `mag`. Guessing from the element would hand one of them a kit powered by
+   * their worst number.
    */
   stat: 'atk' | 'mag';
   target: TargetShape;
@@ -66,7 +66,7 @@ export interface Skill {
 
 export type SkillId =
   // Warrior
-  | 'ember'
+  | 'hew'
   | 'cleave'
   | 'daunt'
   | 'crush'
@@ -99,8 +99,12 @@ export type SkillId =
   | 'knit';
 
 export const SKILLS: Record<SkillId, Skill> = {
-  // --- Warrior: a body in the way, and the only physical burst -----------
-  ember: { id: 'ember', glyph: 'blade', mpCost: 4, element: 'fire', power: 145, stat: 'atk', target: 'oneFoe', kind: 'strike' },
+  // --- Warrior: a body in the way, and not one spark of colour -----------
+  // He used to swing a burning sword. It was taken off him so that colour
+  // could belong to exactly one person: with the mother holding all three
+  // bolts and nobody else holding any, "who do I ask about that monster?"
+  // has one answer, and the triangle in the corner has one owner.
+  hew: { id: 'hew', glyph: 'blade', mpCost: 4, element: 'plain', power: 145, stat: 'atk', target: 'oneFoe', kind: 'strike' },
   cleave: { id: 'cleave', glyph: 'fan', mpCost: 6, element: 'plain', power: 80, stat: 'atk', target: 'allFoes', kind: 'strike' },
   daunt: {
     id: 'daunt',

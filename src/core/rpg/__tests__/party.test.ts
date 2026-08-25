@@ -13,9 +13,20 @@ import {
 } from '../party';
 import type { Hero } from '../party';
 import { MAX_LEVEL, expToReach } from '../stats';
-import { SKILLS } from '../skills';
+import { SKILLS, SKILL_IDS } from '../skills';
+import { CASTABLE, isCastable } from '../elements';
+import type { HeroId } from '../party';
 
 const dad = () => createParty().find((h) => h.id === 'dad')!;
+
+/** Every colour anywhere in a hero's learnset, at any level. */
+const coloursOf = (id: HeroId): string[] => [
+  ...new Set(
+    HEROES[id].learnset
+      .map((entry) => SKILLS[entry.skill].element)
+      .filter(isCastable)
+  ),
+];
 
 describe('the roster', () => {
   it('fields exactly three, which is what fits above a command menu', () => {
@@ -27,6 +38,48 @@ describe('the roster', () => {
     for (const id of PARTY_ORDER) {
       expect(HEROES[id].learnset.some((entry) => entry.level === 1)).toBe(true);
     }
+  });
+
+  // The three of them have to be tellable apart with the sound off and no
+  // words on screen, which means each one owns something the other two never
+  // touch. Colour is the mother's, healing is the daughter's, and the father
+  // is the only one who never lights up at all.
+  describe('one job each', () => {
+    it('puts every colour in the game in the mother, and only her', () => {
+      expect(coloursOf('mom').sort()).toEqual([...CASTABLE].sort());
+      expect(coloursOf('dad')).toEqual([]);
+      expect(coloursOf('daughter')).toEqual([]);
+    });
+
+    it('leaves the father nothing but muscle that costs MP', () => {
+      // His second command button is a fist, not a rod. If a single skill of
+      // his carried a colour the button would be lying about what it opens.
+      for (const entry of HEROES.dad.learnset) {
+        const skill = SKILLS[entry.skill];
+        expect(isCastable(skill.element)).toBe(false);
+        expect(skill.stat).toBe('atk');
+        expect(skill.mpCost).toBeGreaterThan(0);
+      }
+    });
+
+    it('gives the daughter untyped magic and every heal there is', () => {
+      const hers = HEROES.daughter.learnset.map((entry) => SKILLS[entry.skill]);
+      for (const skill of hers) {
+        expect(isCastable(skill.element)).toBe(false);
+        expect(skill.stat).toBe('mag');
+      }
+
+      // Every mending move in the game that points at somebody else is hers.
+      // `target: 'self'` is excluded because that is the boss patching its
+      // own wounds, which is not a thing anyone in the party can be handed.
+      const mending = SKILL_IDS.filter((id) => {
+        const skill = SKILLS[id];
+        return ['heal', 'cure', 'bless'].includes(skill.kind) && skill.target !== 'self';
+      });
+      for (const id of mending) {
+        expect(HEROES.daughter.learnset.map((e) => e.skill)).toContain(id);
+      }
+    });
   });
 
   it('only teaches skills that exist, and never past the level cap', () => {
@@ -112,7 +165,7 @@ describe('createParty', () => {
 
 describe('learnedSkills', () => {
   it('knows only the level-1 skill at level 1', () => {
-    expect(learnedSkills(dad())).toEqual(['ember']);
+    expect(learnedSkills(dad())).toEqual(['hew']);
   });
 
   it('accumulates as the level climbs', () => {
@@ -123,7 +176,7 @@ describe('learnedSkills', () => {
   it('lists skills in the order they were learned, so the tray never reshuffles', () => {
     const hero: Hero = { ...dad(), level: 6 };
     const learned = learnedSkills(hero);
-    expect(learned[0]).toBe('ember');
+    expect(learned[0]).toBe('hew');
     expect(learned).toContain('cleave');
   });
 });

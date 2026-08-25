@@ -75,7 +75,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     base: { maxHp: 46, maxMp: 10, atk: 18, mag: 4, def: 12, spd: 8 },
     growth: { maxHp: 7, maxMp: 2, atk: 3, mag: 1, def: 2, spd: 1 },
     learnset: [
-      { level: 1, skill: 'ember' },
+      { level: 1, skill: 'hew' },
       { level: 3, skill: 'cleave' },
       { level: 6, skill: 'daunt' },
       { level: 9, skill: 'crush' },
