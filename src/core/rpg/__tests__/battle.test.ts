@@ -18,6 +18,7 @@ import type { Rng } from '../rng';
 import { SKILLS } from '../skills';
 import { ENEMIES } from '../enemies';
 import type { EnemyId } from '../enemies';
+import type { Bag } from '../items';
 
 /** Mid-range on every draw: no variance, and any chance above 0.5 lands. */
 const flat: Rng = () => 0.5;
@@ -136,7 +137,7 @@ describe('taking a turn', () => {
     const party: Hero[] = createParty().map((h) => (h.id === 'mom' ? { ...h, level: 8 } : h));
     const ready = until(createBattle(party, ['golem', 'golem', 'golem'], createRng(1)), 'hero:mom');
     const before = livingFoes(ready).map((c) => c.hp);
-    const { state: after, events } = takeTurn(ready, { kind: 'skill', skill: 'bramble' }, flat);
+    const { state: after, events } = takeTurn(ready, { kind: 'skill', skill: 'thicket' }, flat);
     const struck = events.filter((e) => e.type === 'damage').map((e) => (e as { target: string }).target);
     expect(new Set(struck).size).toBe(3);
     livingFoes(after).forEach((foe, i) => expect(foe.hp).toBeLessThan(before[i]));
@@ -180,52 +181,56 @@ describe('taking a turn', () => {
   });
 
   it('inflicts a status when the roll lands, and not when it does not', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'dad' ? { ...h, level: 6 } : h));
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:dad');
+    // Afflicting is a thing that happens TO the party now — no hero carries
+    // it — so a golem swings it and a hero wears it.
+    const ready = until(createBattle(createParty(), ['golem'], createRng(1)), 'foe:0');
 
-    const hit = takeTurn(ready, { kind: 'skill', skill: 'daunt', target: 'foe:0' }, lucky);
-    expect(findCombatant(hit.state, 'foe:0')!.statuses.some((s) => s.kind === 'atkDown')).toBe(true);
+    const hit = takeTurn(ready, { kind: 'skill', skill: 'wither', target: 'hero:dad' }, lucky);
+    expect(findCombatant(hit.state, 'hero:dad')!.statuses.some((s) => s.kind === 'atkDown')).toBe(
+      true
+    );
     expect(hit.events.some((e) => e.type === 'status')).toBe(true);
 
-    const missed = takeTurn(ready, { kind: 'skill', skill: 'daunt', target: 'foe:0' }, unlucky);
-    expect(findCombatant(missed.state, 'foe:0')!.statuses).toEqual([]);
+    const missed = takeTurn(ready, { kind: 'skill', skill: 'wither', target: 'hero:dad' }, unlucky);
+    expect(findCombatant(missed.state, 'hero:dad')!.statuses).toEqual([]);
   });
 
-  it('says what a cure actually lifted, including nothing', () => {
-    // A cleanse that finds no ailment still costs MP and still ends the turn,
-    // so the scene has to be able to tell the two apart and draw both.
-    const party: Hero[] = createParty().map((h) => (h.id === 'daughter' ? { ...h, level: 4 } : h));
-    const clean = until(createBattle(party, ['blob'], createRng(1)), 'hero:daughter');
+  it('says what an antidote actually lifted, including nothing', () => {
+    // An antidote drunk by someone clean is still spent and still ends the
+    // turn, so the scene has to tell the two apart and draw both.
+    const bag: Bag = { potion: 1, antidote: 2 };
+    const clean = until(createBattle(createParty(), ['blob'], createRng(1), bag), 'hero:daughter');
 
-    const nothing = takeTurn(clean, { kind: 'skill', skill: 'cleanse', target: 'hero:dad' }, flat);
+    const nothing = takeTurn(clean, { kind: 'item', item: 'antidote', target: 'hero:dad' }, flat);
     expect(nothing.events.find((e) => e.type === 'cured')).toMatchObject({ cleared: [] });
 
     const afflicted: BattleState = {
       ...clean,
       combatants: clean.combatants.map((c) =>
         c.id === 'hero:dad'
-          ? { ...c, statuses: [{ kind: 'poison', turns: 3 }, { kind: 'regen', turns: 3 }] }
+          ? { ...c, statuses: [{ kind: 'poison', turns: 3 }, { kind: 'atkDown', turns: 3 }] }
           : c
       ),
     };
-    const lifted = takeTurn(afflicted, { kind: 'skill', skill: 'cleanse', target: 'hero:dad' }, flat);
-    // The blessing is not an ailment, so it is kept and not reported as lifted.
-    expect(lifted.events.find((e) => e.type === 'cured')).toMatchObject({ cleared: ['poison'] });
+    const lifted = takeTurn(afflicted, { kind: 'item', item: 'antidote', target: 'hero:dad' }, flat);
+    expect(lifted.events.find((e) => e.type === 'cured')).toMatchObject({
+      cleared: ['poison', 'atkDown'],
+    });
+    expect(findCombatant(lifted.state, 'hero:dad')!.statuses).toEqual([]);
   });
 
   it('reports an affliction that did not take, so a paid turn is never silent', () => {
-    // `lull` deals no damage, so on a failed roll the turn used to produce no
-    // event whatsoever - a legal, MP-spending command that the scene had
+    // `lullaby` deals no damage, so on a failed roll the turn used to produce
+    // no event whatsoever - a legal, MP-spending command that the scene had
     // nothing to draw for and which looked like an ignored tap.
-    const party: Hero[] = createParty().map((h) => (h.id === 'mom' ? { ...h, level: 5 } : h));
-    const ready = until(createBattle(party, ['blob'], createRng(1)), 'hero:mom');
+    const ready = until(createBattle(createParty(), ['shade'], createRng(1)), 'foe:0');
 
-    const missed = takeTurn(ready, { kind: 'skill', skill: 'lull', target: 'foe:0' }, unlucky);
+    const missed = takeTurn(ready, { kind: 'skill', skill: 'lullaby', target: 'hero:dad' }, unlucky);
     expect(missed.events.some((e) => e.type === 'statusFailed')).toBe(true);
     expect(missed.events.some((e) => e.type === 'status')).toBe(false);
-    expect(findCombatant(missed.state, 'foe:0')!.statuses).toEqual([]);
+    expect(findCombatant(missed.state, 'hero:dad')!.statuses).toEqual([]);
 
-    const landed = takeTurn(ready, { kind: 'skill', skill: 'lull', target: 'foe:0' }, lucky);
+    const landed = takeTurn(ready, { kind: 'skill', skill: 'lullaby', target: 'hero:dad' }, lucky);
     expect(landed.events.some((e) => e.type === 'status')).toBe(true);
     expect(landed.events.some((e) => e.type === 'statusFailed')).toBe(false);
   });
@@ -294,20 +299,23 @@ describe('taking a turn', () => {
     expect(findCombatant(after, 'hero:dad')!.hp).toBeLessThan(before);
   });
 
-  it('clears ailments with a cure but leaves the blessing', () => {
-    const party: Hero[] = createParty().map((h) => (h.id === 'daughter' ? { ...h, level: 4 } : h));
-    let state = until(createBattle(party, ['blob'], createRng(1)), 'hero:daughter');
+  it('leaves a sleeper asleep when the antidote goes to somebody else', () => {
+    // The bag is the party's only answer to an ailment now, so who drinks it
+    // has to matter.
+    const bag: Bag = { potion: 1, antidote: 1 };
+    let state = until(createBattle(createParty(), ['blob'], createRng(1), bag), 'hero:daughter');
     state = {
       ...state,
       combatants: state.combatants.map((c) =>
-        c.id === 'hero:dad'
-          ? { ...c, statuses: [{ kind: 'poison', turns: 3 }, { kind: 'regen', turns: 3 }] }
-          : c
+        c.id === 'hero:mom' ? { ...c, statuses: [{ kind: 'sleep', turns: 2 }] } : c
       ),
     };
-    const { state: after } = takeTurn(state, { kind: 'skill', skill: 'cleanse', target: 'hero:dad' }, flat);
-    const cured = findCombatant(after, 'hero:dad')!;
-    expect(cured.statuses.map((s) => s.kind)).toEqual(['regen']);
+    const { state: after } = takeTurn(
+      state,
+      { kind: 'item', item: 'antidote', target: 'hero:dad' },
+      flat
+    );
+    expect(findCombatant(after, 'hero:mom')!.statuses.map((s) => s.kind)).toEqual(['sleep']);
   });
 });
 

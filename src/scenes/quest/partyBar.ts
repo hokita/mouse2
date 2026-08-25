@@ -100,7 +100,7 @@ export function createPartyBar(
   const container = scene.add.container(0, 0).setDepth(DEPTH.hud);
   const rows: Row[] = [];
 
-  for (const kind of ['poison', 'sleep', 'atkDown', 'regen'] as const) {
+  for (const kind of ['poison', 'sleep', 'atkDown'] as const) {
     ensureStatusPip(scene, kind);
   }
 

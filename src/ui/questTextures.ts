@@ -97,8 +97,6 @@ export function statusColor(kind: StatusKind): number {
       return PALETTE.cyan;
     case 'atkDown':
       return PALETTE.muted;
-    default:
-      return PALETTE.gold;
   }
 }
 
@@ -351,6 +349,28 @@ const SKILL_SHAPES: Record<SkillGlyph, Draw> = {
     g.fillRoundedRect(s * 0.3, s * 0.68, s * 0.4, s * 0.09, s * 0.04);
     g.fillRoundedRect(s * 0.44, s * 0.77, s * 0.12, s * 0.16, s * 0.05);
   },
+  // The same swing at weight: a broader blade with a groove down it. Weight
+  // is drawn as more of the shape the player already knows, never as a new
+  // shape — otherwise `strong` would be nine things to learn instead of one.
+  greatblade: (g, s) => {
+    poly(g, [
+      [s * 0.5, s * 0.04],
+      [s * 0.74, s * 0.3],
+      [s * 0.63, s * 0.64],
+      [s * 0.37, s * 0.64],
+      [s * 0.26, s * 0.3],
+    ]);
+    // Punched out in the backdrop colour, the same trick the skull uses, so
+    // the wider blade still reads as a blade and not as a filled wedge.
+    g.lineStyle(s * 0.055, PALETTE.skyTop, 1);
+    g.beginPath();
+    g.moveTo(s * 0.5, s * 0.16);
+    g.lineTo(s * 0.5, s * 0.58);
+    g.strokePath();
+    g.fillStyle(INK, 1);
+    g.fillRoundedRect(s * 0.19, s * 0.64, s * 0.62, s * 0.1, s * 0.05);
+    g.fillRoundedRect(s * 0.44, s * 0.74, s * 0.12, s * 0.19, s * 0.05);
+  },
   // A sweep across everyone: three arcs fanning out.
   fan: (g, s) => {
     for (let i = 0; i < 3; i += 1) {
@@ -374,6 +394,22 @@ const SKILL_SHAPES: Record<SkillGlyph, Draw> = {
       [s * 0.06, c],
       [c - s * 0.13, c - s * 0.09],
     ]);
+  },
+  // The same bolt at weight: four more points between the four it already
+  // has. Read beside a `burst` it is plainly the same star with more of it.
+  starburst: (g, s) => {
+    const c = s / 2;
+    const points: number[][] = [];
+    for (let i = 0; i < 16; i += 1) {
+      const angle = (Math.PI / 8) * i - Math.PI / 2;
+      const tip = i % 2 === 0;
+      const known = i % 4 === 0; // the four points a plain burst already has
+      // A fat waist, not a spiky one: eight thin points would read as LESS
+      // than the chunky four-pointed burst, which is exactly backwards.
+      const r = tip ? (known ? s * 0.48 : s * 0.34) : s * 0.21;
+      points.push([c + Math.cos(angle) * r, c + Math.sin(angle) * r]);
+    }
+    poly(g, points);
   },
   // A bolt at everyone: three stacked waves.
   wave: (g, s) => {
@@ -416,19 +452,6 @@ const SKILL_SHAPES: Record<SkillGlyph, Draw> = {
     g.fillStyle(INK, 1);
     g.fillCircle(c, c, r * 0.82);
   },
-  // Lifts what is stuck to you: a broken ring.
-  ring: (g, s) => {
-    const c = s / 2;
-    g.lineStyle(s * 0.11, INK, 1);
-    g.beginPath();
-    g.arc(c, c, s * 0.32, Phaser.Math.DegToRad(-58), Phaser.Math.DegToRad(238));
-    g.strokePath();
-    poly(g, [
-      [c + s * 0.34, s * 0.1],
-      [c + s * 0.44, s * 0.3],
-      [c + s * 0.2, s * 0.28],
-    ]);
-  },
   // Poison: a skull, reduced to the two things that make one.
   skull: (g, s) => {
     const c = s / 2;
@@ -468,6 +491,28 @@ const SKILL_SHAPES: Record<SkillGlyph, Draw> = {
 
 export function ensureSkillGlyph(scene: Phaser.Scene, name: SkillGlyph): string {
   return glyph(scene, `sigil-skill-${name}`, GLYPH, SKILL_SHAPES[name]);
+}
+
+/**
+ * The broken ring that rises off a cured combatant.
+ *
+ * Not a skill glyph any more: no spell lifts an ailment, so the only thing
+ * that draws this is the antidote. It lives on its own rather than in the
+ * skill table, which now has no cell for it.
+ */
+export function ensureCureRing(scene: Phaser.Scene): string {
+  return glyph(scene, 'sigil-cure-ring', GLYPH, (g, s) => {
+    const c = s / 2;
+    g.lineStyle(s * 0.11, INK, 1);
+    g.beginPath();
+    g.arc(c, c, s * 0.32, Phaser.Math.DegToRad(-58), Phaser.Math.DegToRad(238));
+    g.strokePath();
+    poly(g, [
+      [c + s * 0.34, s * 0.1],
+      [c + s * 0.44, s * 0.3],
+      [c + s * 0.2, s * 0.28],
+    ]);
+  });
 }
 
 // --- commands -------------------------------------------------------------
@@ -895,13 +940,6 @@ const STATUS_SHAPES: Record<StatusKind, Draw> = {
   atkDown: (g, s) => {
     const c = s / 2;
     poly(g, [[c - s * 0.3, s * 0.3], [c + s * 0.3, s * 0.3], [c, s * 0.78]]);
-  },
-  regen: (g, s) => {
-    const c = s / 2;
-    const arm = s * 0.13;
-    g.fillStyle(INK, 1);
-    g.fillRect(c - arm, s * 0.18, arm * 2, s * 0.64);
-    g.fillRect(s * 0.18, c - arm, s * 0.64, arm * 2);
   },
 };
 

@@ -8,7 +8,10 @@
 // of its own turn. That is the only timing that reads honestly on screen: a
 // pip that vanished during someone else's turn would look like a bug.
 
-export type StatusKind = 'poison' | 'sleep' | 'atkDown' | 'regen';
+// Three, and all three are things done TO you. Nothing in the game blesses
+// any more: the party carries no status magic at all, so a pip orbiting a
+// portrait is always bad news and never has to be read twice.
+export type StatusKind = 'poison' | 'sleep' | 'atkDown';
 
 export interface Status {
   kind: StatusKind;
@@ -16,13 +19,9 @@ export interface Status {
   turns: number;
 }
 
-/** Poison and regen scale off maximum HP, so they stay relevant as levels climb. */
+/** Poison scales off maximum HP, so it stays relevant as levels climb. */
 export const POISON_FRACTION = 0.08;
-export const REGEN_FRACTION = 0.1;
 export const ATK_DOWN_MULT = 0.6;
-
-/** The three the daughter's cure clears. `regen` is a blessing, not an ailment. */
-const AILMENTS: StatusKind[] = ['poison', 'sleep', 'atkDown'];
 
 export function hasStatus(statuses: readonly Status[], kind: StatusKind): boolean {
   return statuses.some((status) => status.kind === kind);
@@ -57,30 +56,20 @@ export function wakeOnDamage(statuses: readonly Status[]): Status[] {
   return statuses.filter((status) => status.kind !== 'sleep');
 }
 
-export function cureAilments(statuses: readonly Status[]): Status[] {
-  return statuses.filter((status) => !AILMENTS.includes(status.kind));
-}
-
 export interface TurnEndResult {
   statuses: Status[];
-  /** Negative bleeds, positive mends. The caller clamps it to the HP bar. */
+  /** Only ever negative now — poison bleeds, and nothing here mends. */
   hpDelta: number;
   expired: StatusKind[];
 }
 
-/**
- * Runs poison and regen, counts every pip down one turn, and drops the ones
- * that ran out.
- */
+/** Runs poison, counts every pip down one turn, and drops the ones that ran out. */
 export function resolveTurnEnd(statuses: readonly Status[], maxHp: number): TurnEndResult {
   let hpDelta = 0;
   if (hasStatus(statuses, 'poison')) {
     // At least one point: on a low-level character a rounded 8% is zero, and
     // a pip that takes nothing is a pip that lies.
     hpDelta -= Math.max(1, Math.round(maxHp * POISON_FRACTION));
-  }
-  if (hasStatus(statuses, 'regen')) {
-    hpDelta += Math.max(1, Math.round(maxHp * REGEN_FRACTION));
   }
 
   const expired: StatusKind[] = [];

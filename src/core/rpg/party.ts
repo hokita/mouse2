@@ -64,36 +64,48 @@ export const HEROES: Record<HeroId, HeroDef> = {
     learnset: [
       { level: 1, skill: 'mend' },
       { level: 2, skill: 'force' },
-      { level: 4, skill: 'cleanse' },
-      { level: 6, skill: 'bloom' },
-      { level: 8, skill: 'nova' },
-      { level: 9, skill: 'chorus' },
+      { level: 5, skill: 'nova' },
+      { level: 6, skill: 'chorus' },
+      { level: 9, skill: 'pulse' },
     ],
   },
   dad: {
     id: 'dad',
     base: { maxHp: 46, maxMp: 10, atk: 18, mag: 4, def: 12, spd: 8 },
     growth: { maxHp: 7, maxMp: 2, atk: 3, mag: 1, def: 2, spd: 1 },
+    // He reaches each weight first. His damage is the one number in the game
+    // that never bends, so a player meeting a heavy bolt has already held a
+    // heavy swing to measure it against.
     learnset: [
       { level: 1, skill: 'hew' },
-      { level: 3, skill: 'cleave' },
-      { level: 6, skill: 'daunt' },
-      { level: 9, skill: 'crush' },
+      { level: 4, skill: 'crush' },
+      { level: 7, skill: 'cleave' },
     ],
   },
   mom: {
     id: 'mom',
     base: { maxHp: 30, maxMp: 16, atk: 6, mag: 16, def: 6, spd: 10 },
     growth: { maxHp: 4, maxMp: 3, atk: 1, mag: 3, def: 1, spd: 1 },
-    // The three bolts arrive one at a time rather than together. Handing over
-    // all three colours at once would present the game's central question
-    // before the player has met enough monsters to know it is being asked.
+    // Her nine cells arrive as a colour lesson and then two weight lessons.
+    //
+    // The first three come one at a time: handing over all three colours at
+    // once would present the game's central question before the player has
+    // met enough monsters to know it is being asked. After that the colours
+    // are understood and a weight is one lesson rather than three, so `strong`
+    // and `spread` each land in all three colours together.
+    // Water first, and that order is not free: the one forced opening fight
+    // draws from monsters the level-1 party can actually answer, and at level
+    // 1 her single bolt IS the party's whole palette.
     learnset: [
       { level: 1, skill: 'torrent' },
       { level: 2, skill: 'thorn' },
-      { level: 4, skill: 'flare' },
-      { level: 5, skill: 'lull' },
-      { level: 8, skill: 'bramble' },
+      { level: 3, skill: 'flare' },
+      { level: 5, skill: 'blaze' },
+      { level: 5, skill: 'deluge' },
+      { level: 5, skill: 'bramble' },
+      { level: 8, skill: 'wildfire' },
+      { level: 8, skill: 'flood' },
+      { level: 8, skill: 'thicket' },
     ],
   },
 };
@@ -205,8 +217,8 @@ export function restHero(hero: Hero): Hero {
  *
  * Derived from the learnsets rather than written down, so it cannot drift
  * when a skill moves up or down the curve. Used to keep the opening fight
- * answerable: the Wizard's bolts arrive one at a time, so at level 1 the
- * party holds fire and water and no leaf at all.
+ * answerable: the Wizard's colours arrive one at a time and the Warrior
+ * brings none, so at level 1 the party holds fire and nothing else.
  */
 export function elementsAtLevel(level: number): Element[] {
   const elements = new Set<Element>();
