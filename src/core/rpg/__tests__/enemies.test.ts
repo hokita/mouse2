@@ -172,9 +172,10 @@ describe('the opening fight', () => {
   it('is derived from the learnsets rather than written down twice', () => {
     // Level 1 is the Wizard's water and nothing else — the Warrior carries no
     // colour at all now, so the party's whole palette is one bolt deep until
-    // she picks up leaf at level 2.
+    // she picks up leaf at level 2 and fire at level 3.
     expect([...atLevelOne].sort()).toEqual(['water']);
     expect(elementsAtLevel(2)).toContain('leaf');
+    expect(elementsAtLevel(3)).toContain('fire');
   });
 });
 

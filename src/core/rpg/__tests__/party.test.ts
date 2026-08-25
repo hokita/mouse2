@@ -13,19 +13,20 @@ import {
 } from '../party';
 import type { Hero } from '../party';
 import { MAX_LEVEL, expToReach } from '../stats';
-import { SKILLS, SKILL_IDS } from '../skills';
-import { CASTABLE, isCastable } from '../elements';
+import { SKILLS, SKILL_IDS, TIERS } from '../skills';
+import type { Skill, SkillTier } from '../skills';
+import { CASTABLE, RESIST_MULT, WEAK_MULT, isCastable } from '../elements';
 import type { HeroId } from '../party';
 
 const dad = () => createParty().find((h) => h.id === 'dad')!;
 
+const learnsetOf = (id: HeroId): Skill[] => HEROES[id].learnset.map((entry) => SKILLS[entry.skill]);
+
+const strikesOf = (id: HeroId): Skill[] => learnsetOf(id).filter((skill) => skill.kind === 'strike');
+
 /** Every colour anywhere in a hero's learnset, at any level. */
 const coloursOf = (id: HeroId): string[] => [
-  ...new Set(
-    HEROES[id].learnset
-      .map((entry) => SKILLS[entry.skill].element)
-      .filter(isCastable)
-  ),
+  ...new Set(learnsetOf(id).map((skill) => skill.element).filter(isCastable)),
 ];
 
 describe('the roster', () => {
@@ -105,15 +106,14 @@ describe('the roster', () => {
     }
   });
 
-  it('hits harder per cast than the Wizard does on a colour she got wrong', () => {
+  it('hits harder than a colour the Wizard got wrong and softer than one she got right', () => {
     // The trade has to be real in both directions, or untyped is just worse.
-    const wrong = SKILLS.flare.power * 0.5;
-    const untyped = HEROES.daughter.learnset
-      .map((entry) => SKILLS[entry.skill])
-      .filter((skill) => skill.kind === 'strike');
-    for (const skill of untyped) {
-      expect(skill.power).toBeGreaterThan(wrong);
-      expect(skill.power).toBeLessThan(SKILLS.flare.power * 1.75);
+    // Read weight for weight: the daughter's heavy bolt is measured against
+    // the mother's heavy bolt, never against her light one.
+    for (const untyped of strikesOf('daughter')) {
+      const coloured = learnsetOf('mom').find((skill) => skill.tier === untyped.tier)!;
+      expect(untyped.power).toBeGreaterThan(coloured.power * RESIST_MULT);
+      expect(untyped.power).toBeLessThan(coloured.power * WEAK_MULT);
     }
   });
 
@@ -139,6 +139,94 @@ describe('the roster', () => {
       const growth = HEROES[id].growth;
       for (const value of Object.values(growth)) {
         expect(value).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('the grid the party is cut from', () => {
+  // Three weights across, and down the side: the father's muscle, the
+  // mother's three colours, the daughter's colourless bolt and her healing.
+  // Seventeen cells, no strays. Anything that is not a cell is not a skill.
+
+  it('gives the father one plain swing at each weight and no colour at all', () => {
+    const skills = learnsetOf('dad');
+    expect(skills.map((skill) => skill.tier).sort()).toEqual([...TIERS].sort());
+    for (const skill of skills) {
+      expect(skill.element).toBe('plain');
+      expect(skill.stat).toBe('atk');
+    }
+  });
+
+  it('gives the mother every colour at every weight, and nothing besides', () => {
+    const wanted = CASTABLE.flatMap((element) => TIERS.map((tier) => `${element}/${tier}`));
+    const held = learnsetOf('mom').map((skill) => `${skill.element}/${skill.tier}`);
+    expect(held.sort()).toEqual(wanted.sort());
+  });
+
+  it('prices the mother by weight alone, so a colour is never the cheap answer', () => {
+    for (const tier of TIERS) {
+      const row = learnsetOf('mom').filter((skill) => skill.tier === tier);
+      expect(row).toHaveLength(3);
+      expect(new Set(row.map((skill) => skill.mpCost)).size).toBe(1);
+      expect(new Set(row.map((skill) => skill.power)).size).toBe(1);
+    }
+  });
+
+  it('gives the daughter a colourless bolt at every weight', () => {
+    expect(strikesOf('daughter').map((skill) => skill.tier).sort()).toEqual([...TIERS].sort());
+  });
+
+  it('gives her one heal for a single hero and one for everybody', () => {
+    const heals = learnsetOf('daughter').filter((skill) => skill.kind === 'heal');
+    expect(heals.map((skill) => skill.tier).sort()).toEqual(['normal', 'spread']);
+  });
+
+  it('leaves the party no status magic whatsoever', () => {
+    // Poison, sleep and the weakening are things that happen TO the party
+    // now. The only answer in the bag is an antidote.
+    for (const id of PARTY_ORDER) {
+      for (const skill of learnsetOf(id)) {
+        expect(skill.kind).not.toBe('afflict');
+      }
+    }
+  });
+});
+
+describe('the order the grid fills in', () => {
+  const levelsByTier = (id: HeroId, tier: SkillTier): number[] =>
+    HEROES[id].learnset.filter((entry) => SKILLS[entry.skill].tier === tier).map((e) => e.level);
+
+  it('walks the mother through her colours one at a time before any weight is repeated', () => {
+    // Three colours arriving together would ask the game's central question —
+    // what colour is that thing? — before the player has met enough monsters
+    // to know it is being asked.
+    expect(new Set(levelsByTier('mom', 'normal')).size).toBe(3);
+  });
+
+  it('then hands her each new weight in all three colours at once', () => {
+    // Once the question is understood, a weight is one lesson and not three.
+    expect(new Set(levelsByTier('mom', 'strong')).size).toBe(1);
+    expect(new Set(levelsByTier('mom', 'spread')).size).toBe(1);
+  });
+
+  it('never opens a weight on the mother before the father has it', () => {
+    // He is the ruler: an unbendable number the coloured ones are read
+    // against. Meeting a heavy bolt before ever seeing a heavy swing would
+    // leave the player nothing to measure it with.
+    for (const tier of TIERS) {
+      expect(Math.min(...levelsByTier('dad', tier))).toBeLessThanOrEqual(
+        Math.min(...levelsByTier('mom', tier))
+      );
+    }
+  });
+
+  it('finishes every tray inside a run rather than at the level cap', () => {
+    // A campaign lands somewhere around level 10 or 11. A skill taught at 12
+    // is a skill written down and never cast.
+    for (const id of PARTY_ORDER) {
+      for (const entry of HEROES[id].learnset) {
+        expect(entry.level).toBeLessThanOrEqual(9);
       }
     }
   });
@@ -177,7 +265,7 @@ describe('learnedSkills', () => {
     const hero: Hero = { ...dad(), level: 6 };
     const learned = learnedSkills(hero);
     expect(learned[0]).toBe('hew');
-    expect(learned).toContain('cleave');
+    expect(learned).toContain('crush');
   });
 });
 
@@ -226,10 +314,10 @@ describe('awardExp', () => {
     expect(isAlive(hero)).toBe(false);
   });
 
-  it('reports every skill learned, including two levels at once', () => {
-    const { hero, learned } = awardExp(dad(), expToReach(3));
-    expect(hero.level).toBe(3);
-    expect(learned).toContain('cleave');
+  it('reports every skill learned, including several levels at once', () => {
+    const { hero, learned } = awardExp(dad(), expToReach(4));
+    expect(hero.level).toBe(4);
+    expect(learned).toContain('crush');
   });
 
   it('stops levelling at the cap but still banks the EXP', () => {

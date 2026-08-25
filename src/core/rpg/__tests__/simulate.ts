@@ -45,11 +45,13 @@ const TURN_CEILING = 300;
 
 export type Policy = 'skilled' | 'naive';
 
-const BOLT: Record<Element, SkillId | null> = {
-  fire: 'flare',
-  water: 'torrent',
-  leaf: 'thorn',
-  plain: null,
+/** Every bolt of a colour, heaviest first — a good player casts the biggest
+ *  one they have learned and can pay for. */
+const BOLTS: Record<Element, SkillId[]> = {
+  fire: ['blaze', 'flare'],
+  water: ['deluge', 'torrent'],
+  leaf: ['bramble', 'thorn'],
+  plain: [],
 };
 
 const weakest = (crowd: Combatant[]): Combatant =>
@@ -90,17 +92,18 @@ function heroCommand(
   if (hurt.length && (state.bag.potion ?? 0) > 0 && weakest(hurt).hp < weakest(hurt).stats.maxHp * 0.25) {
     return { kind: 'item', item: 'potion', target: weakest(hurt).id };
   }
-  if (actor.heroId === 'daughter' && has('cleanse')) {
+  // No hero lifts an ailment any more, so the bag is the only answer.
+  if ((state.bag.antidote ?? 0) > 0) {
     const afflicted = allies.find((a) => hasStatus(a.statuses, 'poison') || hasStatus(a.statuses, 'sleep'));
     if (afflicted) {
-      return { kind: 'skill', skill: 'cleanse', target: afflicted.id };
+      return { kind: 'item', item: 'antidote', target: afflicted.id };
     }
   }
 
   // Then hit the weakness, if this hero has that colour to hand.
   for (const foe of [...foes].sort((a, b) => a.hp - b.hp)) {
-    const bolt = foe.affinity.weak ? BOLT[foe.affinity.weak] : null;
-    if (bolt && has(bolt)) {
+    const bolt = foe.affinity.weak ? BOLTS[foe.affinity.weak].find(has) : undefined;
+    if (bolt) {
       return { kind: 'skill', skill: bolt, target: foe.id };
     }
   }

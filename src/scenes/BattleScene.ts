@@ -31,8 +31,8 @@ import type { Starfield } from '../ui/widgets';
 import {
   PIP,
   elementColor,
+  ensureCureRing,
   ensureGuardGlyph,
-  ensureSkillGlyph,
   ensureStatusPip,
   ensureTriangleBadge,
   statusColor,
@@ -402,7 +402,8 @@ export class BattleScene extends Phaser.Scene {
       case 'cured': {
         const target = at(event.target);
         if (target) {
-          target.statuses = target.statuses.filter((status) => status.kind === 'regen');
+          // Every status is an ailment now, so an antidote takes all of them.
+          target.statuses = [];
         }
         break;
       }
@@ -482,10 +483,10 @@ export class BattleScene extends Phaser.Scene {
         break;
       }
       case 'cured': {
-        // Drew nothing at all until now, so a cleanse that found no ailment -
-        // a legal turn that costs MP - was indistinguishable from a tap the
-        // game had ignored. Found by auditing every event for visible output
-        // after this same shape turned up twice in review.
+        // Drew nothing at all until now, so an antidote that found no ailment
+        // - a legal turn that spends an item - was indistinguishable from a
+        // tap the game had ignored. Found by auditing every event for visible
+        // output after this same shape turned up twice in review.
         this.floatRing(event.target, event.cleared.length > 0);
         playSfx(this, event.cleared.length > 0 ? 'heal' : 'guard');
         this.refresh();
@@ -566,11 +567,11 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  /** The broken ring of the cure skill, rising when it lifted something. */
+  /** The broken ring of the antidote, rising when it lifted something. */
   private floatRing(targetId: string, worked: boolean): void {
     const { x, y } = this.positionOf(targetId);
     const ring = this.add
-      .image(x, y - 10, ensureSkillGlyph(this, 'ring'))
+      .image(x, y - 10, ensureCureRing(this))
       .setDisplaySize(30, 30)
       .setTint(worked ? PALETTE.mint : PALETTE.muted)
       .setAlpha(worked ? 1 : 0.6)

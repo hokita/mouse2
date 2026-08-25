@@ -14,7 +14,6 @@ import type { Skill, SkillId } from './skills';
 import {
   applyStatus,
   attackMultiplier,
-  cureAilments,
   hasStatus,
   resolveTurnEnd,
   wakeOnDamage,
@@ -235,18 +234,6 @@ function applySkill(draft: Draft, actor: Combatant, skill: Skill, chosen: string
       mend(draft, target, computeHeal(skill.power, actor.stats.mag, rng));
     }
 
-    if (skill.kind === 'cure') {
-      const before = target.statuses;
-      target.statuses = cureAilments(before);
-      draft.events.push({
-        type: 'cured',
-        target: target.id,
-        cleared: before
-          .filter((status) => !target.statuses.some((kept) => kept.kind === status.kind))
-          .map((status) => status.kind),
-      });
-    }
-
     // A status only sticks to someone still standing — otherwise a poison pip
     // would sit on a portrait that has already gone dark.
     if (skill.inflicts && target.hp > 0) {
@@ -285,15 +272,10 @@ function applyItem(draft: Draft, actor: Combatant, itemId: ItemId, chosen: strin
       draft.events.push({ type: 'mp', target: target.id, amount: applied });
     }
     if (item.cures) {
-      const before = target.statuses;
-      target.statuses = cureAilments(before);
-      draft.events.push({
-        type: 'cured',
-        target: target.id,
-        cleared: before
-          .filter((status) => !target.statuses.some((kept) => kept.kind === status.kind))
-          .map((status) => status.kind),
-      });
+      // Every status in the game is an ailment, so an antidote takes the lot.
+      const cleared = target.statuses.map((status) => status.kind);
+      target.statuses = [];
+      draft.events.push({ type: 'cured', target: target.id, cleared });
     }
     if (item.flatDamage) {
       // A bomb is a bomb: the same hole whoever throws it, so it stays useful
