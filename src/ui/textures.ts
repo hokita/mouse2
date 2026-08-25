@@ -26,6 +26,7 @@ export const TEX = {
   asphalt: 'road-asphalt',
   laneDash: 'road-lane-dash',
   kerb: 'road-kerb',
+  boost: 'car-boost',
 } as const;
 
 export function shardTexture(color: number): string {
@@ -390,5 +391,40 @@ export function ensureRoadTextures(scene: Phaser.Scene): void {
     g.fillRect(0, 0, 8, 32);
     g.fillStyle(0xf3f5ff, 1);
     g.fillRect(0, 32, 8, 32);
+  });
+}
+
+export const BOOST_SIZE = 40;
+
+/**
+ * The speed pickup: a mint disc with a double chevron pointing up the road.
+ *
+ * Mint is reserved for this — no traffic car wears it (see TRAFFIC_COLORS) —
+ * because a pickup you mistake for a car at 700 px/s is a pickup you swerve
+ * away from. The chevrons say "faster" without a word of text, and the disc
+ * is less than half a car wide so it never reads as one.
+ */
+export function ensureBoostTexture(scene: Phaser.Scene): string {
+  return define(scene, TEX.boost, BOOST_SIZE, BOOST_SIZE, (g) => {
+    const mid = BOOST_SIZE / 2;
+
+    g.fillStyle(shade(PALETTE.mint, -0.45), 1);
+    g.fillCircle(mid, mid, mid - 1);
+    g.fillStyle(PALETTE.mint, 1);
+    g.fillCircle(mid, mid, mid - 4);
+    // Lit from overhead, like everything else in the project.
+    g.fillStyle(0xffffff, 0.22);
+    g.fillCircle(mid, mid - 5, mid - 8);
+
+    const chevron = (top: number): number[][] => [
+      [9, top + 10],
+      [mid, top],
+      [31, top + 10],
+      [31, top + 15],
+      [mid, top + 5],
+      [9, top + 15],
+    ];
+    fillPolygon(g, chevron(8), 0x0d2b1e, 0.9);
+    fillPolygon(g, chevron(17), 0x0d2b1e, 0.9);
   });
 }
