@@ -197,6 +197,13 @@ describe('the order the grid fills in', () => {
   const levelsByTier = (id: HeroId, tier: SkillTier): number[] =>
     HEROES[id].learnset.filter((entry) => SKILLS[entry.skill].tier === tier).map((e) => e.level);
 
+  /** The colours of one weight, in the order she is taught them. */
+  const coloursInLearnOrder = (id: HeroId, tier: SkillTier): string[] =>
+    HEROES[id].learnset
+      .filter((entry) => SKILLS[entry.skill].tier === tier)
+      .sort((a, b) => a.level - b.level)
+      .map((entry) => SKILLS[entry.skill].element);
+
   it('walks the mother through her colours one at a time before any weight is repeated', () => {
     // Three colours arriving together would ask the game's central question —
     // what colour is that thing? — before the player has met enough monsters
@@ -204,10 +211,30 @@ describe('the order the grid fills in', () => {
     expect(new Set(levelsByTier('mom', 'normal')).size).toBe(3);
   });
 
-  it('then hands her each new weight in all three colours at once', () => {
-    // Once the question is understood, a weight is one lesson and not three.
-    expect(new Set(levelsByTier('mom', 'strong')).size).toBe(1);
-    expect(new Set(levelsByTier('mom', 'spread')).size).toBe(1);
+  it('never hands the mother two spells in the same level-up', () => {
+    // Nine cells over nine levels. Three bolts arriving together is three
+    // lessons in one breath: the player takes the one they already understand
+    // and the other two sit in the tray unread until the run is over.
+    const levels = HEROES.mom.learnset.map((entry) => entry.level);
+    expect(new Set(levels).size).toBe(levels.length);
+  });
+
+  it('walks each of her weights through the colours one at a time too', () => {
+    for (const tier of TIERS) {
+      expect(new Set(levelsByTier('mom', tier)).size).toBe(3);
+    }
+  });
+
+  it('never makes the same colour wait in the same place twice', () => {
+    // A colour that is third in every weight is the one the player never gets
+    // to swing hard: they meet heavy fire and heavy water two levels before
+    // they can answer a leaf monster with either. Each colour opens one weight
+    // and closes another, so the wait is shared out instead of always landing
+    // on the same one.
+    const orders = TIERS.map((tier) => coloursInLearnOrder('mom', tier));
+    for (let slot = 0; slot < CASTABLE.length; slot += 1) {
+      expect(new Set(orders.map((order) => order[slot])).size).toBe(CASTABLE.length);
+    }
   });
 
   it('never opens a weight on the mother before the father has it', () => {
