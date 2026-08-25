@@ -204,10 +204,18 @@ describe('the order the grid fills in', () => {
     expect(new Set(levelsByTier('mom', 'normal')).size).toBe(3);
   });
 
-  it('then hands her each new weight in all three colours at once', () => {
-    // Once the question is understood, a weight is one lesson and not three.
-    expect(new Set(levelsByTier('mom', 'strong')).size).toBe(1);
-    expect(new Set(levelsByTier('mom', 'spread')).size).toBe(1);
+  it('never hands the mother two spells in the same level-up', () => {
+    // Nine cells over nine levels. Three bolts arriving together is three
+    // lessons in one breath: the player takes the one they already understand
+    // and the other two sit in the tray unread until the run is over.
+    const levels = HEROES.mom.learnset.map((entry) => entry.level);
+    expect(new Set(levels).size).toBe(levels.length);
+  });
+
+  it('walks each of her weights through the colours one at a time too', () => {
+    for (const tier of TIERS) {
+      expect(new Set(levelsByTier('mom', tier)).size).toBe(3);
+    }
   });
 
   it('never opens a weight on the mother before the father has it', () => {

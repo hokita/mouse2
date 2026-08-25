@@ -86,26 +86,30 @@ export const HEROES: Record<HeroId, HeroDef> = {
     id: 'mom',
     base: { maxHp: 30, maxMp: 16, atk: 6, mag: 16, def: 6, spd: 10 },
     growth: { maxHp: 4, maxMp: 3, atk: 1, mag: 3, def: 1, spd: 1 },
-    // Her nine cells arrive as a colour lesson and then two weight lessons.
+    // Her nine cells arrive one per level, from 1 to 9, and never two at once.
     //
-    // The first three come one at a time: handing over all three colours at
-    // once would present the game's central question before the player has
-    // met enough monsters to know it is being asked. After that the colours
-    // are understood and a weight is one lesson rather than three, so `strong`
-    // and `spread` each land in all three colours together.
+    // Three bolts landing on the same level-up is three lessons in one breath.
+    // The player casts whichever one they already understand and the other two
+    // sit in the tray unread, so a weight taught all at once is really a weight
+    // taught late. One at a time means every level-up hands her exactly one new
+    // thing, and there is a fight to try it in before the next arrives.
+    //
     // Water first, and that order is not free: the one forced opening fight
     // draws from monsters the level-1 party can actually answer, and at level
     // 1 her single bolt IS the party's whole palette.
+    //
+    // The colour that goes last in one weight does not go last in the next, so
+    // no colour is the one the player never gets to swing hard.
     learnset: [
       { level: 1, skill: 'torrent' },
       { level: 2, skill: 'thorn' },
       { level: 3, skill: 'flare' },
+      { level: 4, skill: 'deluge' },
       { level: 5, skill: 'blaze' },
-      { level: 5, skill: 'deluge' },
-      { level: 5, skill: 'bramble' },
+      { level: 6, skill: 'bramble' },
+      { level: 7, skill: 'flood' },
       { level: 8, skill: 'wildfire' },
-      { level: 8, skill: 'flood' },
-      { level: 8, skill: 'thicket' },
+      { level: 9, skill: 'thicket' },
     ],
   },
 };
