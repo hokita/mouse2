@@ -463,8 +463,16 @@ export class CarScene extends Phaser.Scene {
 
   private spawnBoost(): void {
     // Nothing left to give once the ramp is topped out, and a pickup that
-    // does nothing is worse than no pickup at all.
-    if (this.gears >= GEARS_TO_TOP_SPEED) {
+    // does nothing is worse than no pickup at all. Discs already falling
+    // count toward that total: each one is a gear the player has been
+    // promised, so the road stops offering them one disc early rather than
+    // risk leaving a dud on the tarmac. Today the timings rule that out on
+    // their own — at eleven gears a disc clears the screen in 1.53 s, inside
+    // the 2 s minimum between spawns, so it is never airborne when the next
+    // one is offered. That is arithmetic, not design: retune the ramp or the
+    // interval and the guarantee quietly disappears. This keeps it a
+    // property of the code.
+    if (this.gears + this.boosts.length >= GEARS_TO_TOP_SPEED) {
       return;
     }
 
