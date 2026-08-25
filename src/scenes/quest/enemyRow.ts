@@ -20,10 +20,11 @@ import { WIDTH } from '../../gameConfig';
 
 // The other side of the fight, and the turn queue above it.
 //
-// Every monster is drawn in the colour of the element that kills it, and
-// wears that element's mark on its plate. That is the entire lesson this game
-// has to teach, repeated on every enemy on every screen, because there is no
-// second place to put it — no bestiary, no tooltip, no line of dialogue.
+// Every monster is drawn in the colour it *is*, and wears that element's mark
+// on its plate. What beats it is not written here — it is read off the
+// triangle badge in the corner, which is the one place the rule lives. That
+// keeps the lesson in a single spot rather than restated, differently, on
+// every silhouette on screen.
 //
 // Three abreast is the hard ceiling. A fourth silhouette on a 430px screen
 // either overlaps its neighbour's HP bar or shrinks below a thumb.
@@ -73,7 +74,7 @@ export function createEnemyRow(
     const x = span * (index + 1);
     const root = scene.add.container(x, centerY);
     const def = ENEMIES[foe.enemyId!];
-    const tint = def.affinity.weak ? elementColor(def.affinity.weak) : PALETTE.muted;
+    const tint = elementColor(def.element);
 
     const glow = scene.add
       .image(0, 0, TEX.glow)
@@ -88,9 +89,10 @@ export function createEnemyRow(
 
     // The element mark repeats what the colour already says. Saying it twice
     // is what keeps the game playable for someone who cannot tell amber from
-    // violet — with no words anywhere, colour alone would lock them out.
+    // lime — with no words anywhere, colour alone would lock them out, and
+    // the triangle badge would be a diagram they could not index into.
     const mark = scene.add
-      .image(0, FOE * scale * 0.5 + 6, ensureElementMark(scene, def.affinity.weak ?? 'plain'))
+      .image(0, FOE * scale * 0.5 + 6, ensureElementMark(scene, def.element))
       .setDisplaySize(MARK, MARK)
       .setTint(tint);
 
@@ -186,15 +188,15 @@ export function createEnemyRow(
         const isHero = combatant.side === 'party';
         const key = isHero
           ? ensureHeroFace(scene, combatant.heroId!)
-          : ensureElementMark(scene, ENEMIES[combatant.enemyId!].affinity.weak ?? 'plain');
+          : ensureElementMark(scene, ENEMIES[combatant.enemyId!].element);
         const icon = scene.add
           .image(x, 0, key)
           .setDisplaySize(size, size)
           .setAlpha(index === 0 ? 1 : 0.5 - index * 0.05);
-        // Monster marks carry the colour of the element that kills them; a
-        // hero portrait is already painted and must be left alone.
+        // A monster stands in the queue as its own colour, exactly as it does
+        // on the field; a hero portrait is already painted and is left alone.
         if (!isHero) {
-          icon.setTint(elementColor(ENEMIES[combatant.enemyId!].affinity.weak ?? 'plain'));
+          icon.setTint(elementColor(ENEMIES[combatant.enemyId!].element));
         }
         queue.add(icon);
       });

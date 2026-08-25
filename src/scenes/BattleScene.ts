@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { HEIGHT } from '../gameConfig';
+import { HEIGHT, WIDTH } from '../gameConfig';
 import { fadeOutMusic, playMusic, playSfx } from '../audio/bus';
 import {
   activeCombatant,
@@ -34,6 +34,7 @@ import {
   ensureGuardGlyph,
   ensureSkillGlyph,
   ensureStatusPip,
+  ensureTriangleBadge,
   statusColor,
 } from '../ui/questTextures';
 import { createEnemyRow } from './quest/enemyRow';
@@ -57,6 +58,16 @@ export const BATTLE_ACCENT = PALETTE.rose;
 
 /** Vertical anatomy of the screen, top to bottom. */
 const QUEUE_Y = 104;
+/**
+ * The triangle badge, sharing the queue's row.
+ *
+ * The queue runs from x=30 and never reaches past about 234 even at its
+ * longest, so the right end of that row is dead space — and the badge has to
+ * live somewhere permanent. Tucking it into a corner nobody uses buys a rule
+ * that is always on screen without costing the fight any room.
+ */
+const TRIANGLE_SIZE = 100;
+const TRIANGLE_X = WIDTH - TRIANGLE_SIZE / 2 - 16;
 const ENEMY_Y = 268;
 const PARTY_Y = 512;
 const COMMAND_Y = HEIGHT - 116;
@@ -123,8 +134,15 @@ export class BattleScene extends Phaser.Scene {
     this.stars = createStarBackdrop(this);
     this.cameras.main.fadeIn(280, 0, 0, 0);
 
+    // Before the enemy row, so the badge sits under the queue's icons rather
+    // than over them if the two ever overlap on a long turn order.
+    this.add
+      .image(TRIANGLE_X, QUEUE_Y, ensureTriangleBadge(this))
+      .setDisplaySize(TRIANGLE_SIZE, TRIANGLE_SIZE)
+      .setDepth(DEPTH.hud - 1);
+
     this.enemies = createEnemyRow(this, this.state, ENEMY_Y, QUEUE_Y);
-    this.roster = createPartyBar(this, PARTY_Y, BATTLE_ACCENT);
+    this.roster = createPartyBar(this, PARTY_Y, BATTLE_ACCENT, this.party);
     this.commands = createCommandBar(this, COMMAND_Y, BATTLE_ACCENT);
 
     createBackButton(this, {
@@ -132,7 +150,9 @@ export class BattleScene extends Phaser.Scene {
       onTap: () => transitionTo(this, 'MenuScene'),
       isArmed: () => !this.settled,
     });
-    createSoundButton(this, { accent: BATTLE_ACCENT, depth: DEPTH.overlay + 1 });
+    // On the back chip's row, not under it: its default seat overlaps the
+    // turn queue's first icon, which is the one icon that has to be readable.
+    createSoundButton(this, { accent: BATTLE_ACCENT, y: 45, depth: DEPTH.overlay + 1 });
 
     this.card = createNodeCard(this, BATTLE_ACCENT);
 

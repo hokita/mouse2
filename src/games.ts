@@ -43,7 +43,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     title: 'Sigil',
-    tagline: 'Hit it with the colour it already is',
+    tagline: 'Hit it with the colour that beats it',
     sceneKey: 'QuestScene',
     accent: PALETTE.rose,
     icon: 'sigil',

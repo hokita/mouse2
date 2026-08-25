@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BOSS_ID, ENEMIES, ENEMY_IDS, encounterFor, isElite } from '../enemies';
+import { CASTABLE, affinityOf, isCastable } from '../elements';
 import { SKILLS } from '../skills';
 import { createRng } from '../rng';
 import { elementsAtLevel } from '../party';
@@ -8,6 +9,15 @@ describe('the bestiary', () => {
   it('keys every entry by its own id', () => {
     for (const id of ENEMY_IDS) {
       expect(ENEMIES[id].id).toBe(id);
+    }
+  });
+
+  it('reads every affinity off the triangle rather than writing it down', () => {
+    // The badge in the corner of the fight is drawn from the cycle. If a
+    // monster could state an affinity by hand it could contradict the badge,
+    // and a diagram that lies about the rules is worse than no diagram.
+    for (const id of ENEMY_IDS) {
+      expect(ENEMIES[id].affinity).toEqual(affinityOf(ENEMIES[id].element));
     }
   });
 
@@ -22,6 +32,29 @@ describe('the bestiary', () => {
     for (const id of ENEMY_IDS) {
       const { weak, resist } = ENEMIES[id].affinity;
       expect(weak).not.toBe(resist);
+    }
+  });
+
+  it('paints all three colours somewhere in the bestiary', () => {
+    // A colour no monster wears is a third of the badge that never comes up,
+    // and a bolt the player has no reason to have learned.
+    const worn = new Set(ENEMY_IDS.map((id) => ENEMIES[id].element));
+    for (const element of CASTABLE) {
+      expect(worn.has(element)).toBe(true);
+    }
+  });
+
+  it('never lets a monster cast a colour it is not', () => {
+    // A monster is painted its own element, so a bolt of some other colour
+    // coming out of it would be the one thing on screen contradicting the
+    // colour it is drawn in.
+    for (const id of ENEMY_IDS) {
+      for (const move of ENEMIES[id].moves) {
+        const { element } = SKILLS[move];
+        if (isCastable(element)) {
+          expect(element).toBe(ENEMIES[id].element);
+        }
+      }
     }
   });
 
@@ -106,10 +139,10 @@ describe('the opening fight', () => {
   const atLevelOne = elementsAtLevel(1);
 
   it('only sends monsters the level-1 party can answer', () => {
-    // The one forced battle exists to teach "hit it with the colour it
-    // already is". A wisp is weak to leaf, which the Wizard does not learn
-    // until level 2 — and it resists the one bolt she starts with, so that
-    // fight would have taught the exact opposite of the lesson.
+    // The one forced battle exists to teach the player to read the triangle.
+    // The Wizard starts with water alone, so the opener has to be something
+    // water beats — a blob is leaf and shrugs water off, and that fight would
+    // have taught the exact opposite of the lesson.
     const rng = createRng(1);
     for (let i = 0; i < 200; i += 1) {
       for (const foe of encounterFor(1, false, rng, atLevelOne)) {
@@ -137,8 +170,10 @@ describe('the opening fight', () => {
   });
 
   it('is derived from the learnsets rather than written down twice', () => {
-    // Level 1 is the Warrior's fire and the Wizard's water, and no leaf.
-    expect([...atLevelOne].sort()).toEqual(['fire', 'water']);
+    // Level 1 is the Wizard's water and nothing else — the Warrior carries no
+    // colour at all now, so the party's whole palette is one bolt deep until
+    // she picks up leaf at level 2.
+    expect([...atLevelOne].sort()).toEqual(['water']);
     expect(elementsAtLevel(2)).toContain('leaf');
   });
 });

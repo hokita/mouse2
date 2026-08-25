@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { BattleState, Combatant } from '../../core/rpg/battle';
 import { HEROES } from '../../core/rpg/party';
+import type { Hero } from '../../core/rpg/party';
 import { PALETTE, RADIUS, displayStyle, shade } from '../../ui/theme';
 import { DEPTH } from '../../ui/widgets';
 import {
@@ -10,6 +11,8 @@ import {
   ensureStatusPip,
   statusColor,
 } from '../../ui/questTextures';
+import { createLevelBadge } from './levelBadge';
+import type { LevelBadge } from './levelBadge';
 import { WIDTH } from '../../gameConfig';
 
 // The party's three rows along the lower middle of the screen.
@@ -52,6 +55,16 @@ const MP_PER_LINE_MIN = 18;
 const MP_LINES = 2;
 /** The drawn size of a portrait. Sits inside the plate with room to spare. */
 const FACE_SIZE = 38;
+/**
+ * The level badge, clipped to the portrait's lower-left rim.
+ *
+ * Offset so its centre lands just inside the plate's edge, and on the left
+ * because the guard shield already owns the right. `LEFT` is 22, so a radius
+ * of 11 at x = SIGIL_X - 18 stops one pixel clear of the screen margin.
+ */
+const BADGE_R = 11;
+const BADGE_DX = -18;
+const BADGE_DY = 19;
 
 export interface PartyBar {
   container: Phaser.GameObjects.Container;
@@ -71,13 +84,19 @@ interface Row {
   hp: Phaser.GameObjects.Text;
   mp: Phaser.GameObjects.Graphics;
   guard: Phaser.GameObjects.Image;
+  badge: LevelBadge;
   statuses: Phaser.GameObjects.Container;
   ring: Phaser.GameObjects.Graphics;
   hit: Phaser.GameObjects.Rectangle;
   y: number;
 }
 
-export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number): PartyBar {
+export function createPartyBar(
+  scene: Phaser.Scene,
+  topY: number,
+  accent: number,
+  party: Hero[]
+): PartyBar {
   const container = scene.add.container(0, 0).setDepth(DEPTH.hud);
   const rows: Row[] = [];
 
@@ -116,7 +135,9 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
     const guard = scene.add
       .image(SIGIL_X + 21, 18, ensureGuardGlyph(scene))
       .setDisplaySize(20, 20)
-      .setTint(PALETTE.cyan)
+      // Plain ink for the same reason the pips left cyan: guarding is a
+      // state, not a colour, and it must not look like one.
+      .setTint(PALETTE.text)
       .setVisible(false);
 
     // A transparent rectangle rather than the container itself: the row's
@@ -126,9 +147,14 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
       .rectangle(WIDTH / 2, 0, WIDTH - 32, ROW_HEIGHT - 6, 0xffffff, 0)
       .setOrigin(0.5, 0.5);
 
-    root.add([ring, plate, face, bar, hp, mp, statuses, guard, hit]);
+    // Levels are fixed for the length of a fight — EXP is banked back on the
+    // map — so the badge is set once here rather than repainted every turn.
+    const badge = createLevelBadge(scene, SIGIL_X + BADGE_DX, BADGE_DY, BADGE_R, accent);
+    badge.set(party.find((hero) => hero.id === def.id)?.level ?? 1);
+
+    root.add([ring, plate, face, bar, hp, mp, statuses, guard, badge.container, hit]);
     container.add(root);
-    rows.push({ id: `hero:${def.id}`, root, bar, hp, mp, statuses, guard, ring, hit, y });
+    rows.push({ id: `hero:${def.id}`, root, bar, hp, mp, statuses, guard, badge, ring, hit, y });
   });
 
   function paintRow(row: Row, hero: Combatant): void {
@@ -167,7 +193,11 @@ export function createPartyBar(scene: Phaser.Scene, topY: number, accent: number
     for (let i = 0; i < hero.stats.maxMp; i += 1) {
       const x = BAR_X + 4 + (i % perLine) * gap;
       const y = BAR_HEIGHT / 2 + 8 + Math.floor(i / perLine) * 9;
-      row.mp.fillStyle(i < hero.mp ? PALETTE.cyan : PALETTE.surfaceEdge, i < hero.mp ? 0.95 : 0.5);
+      // Violet, and not cyan. Cyan is water now that the triangle is on
+      // screen, and a row of little cyan dots beside a hero read as an
+      // element they were carrying rather than as fuel. Violet is the one
+      // accent in the palette that means nothing elementally.
+      row.mp.fillStyle(i < hero.mp ? PALETTE.violet : PALETTE.surfaceEdge, i < hero.mp ? 0.95 : 0.5);
       row.mp.fillCircle(x, y, radius);
     }
 

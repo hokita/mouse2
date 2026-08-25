@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import type { Element } from '../core/rpg/elements';
+import { BEATS, CASTABLE } from '../core/rpg/elements';
+import type { CastableElement, Element } from '../core/rpg/elements';
 import type { EnemyShape } from '../core/rpg/enemies';
 import type { HeroId } from '../core/rpg/party';
 import type { NodeKind } from '../core/rpg/nodeMap';
@@ -58,19 +59,22 @@ export const NODE = 40;
 const QUEST_TEX = {
   cmdAttack: 'sigil-cmd-attack',
   cmdSkill: 'sigil-cmd-skill',
+  cmdMight: 'sigil-cmd-might',
   cmdGuard: 'sigil-cmd-guard',
   cmdItem: 'sigil-cmd-item',
   targetRing: 'sigil-target-ring',
+  triangle: 'sigil-triangle',
 } as const;
 
 /**
  * The colour of each element, and the single most load-bearing mapping here.
  *
- * A monster is drawn in the colour of the element that hurts it, so the rule
- * the player has to learn is as short as a rule can be: hit it with the
- * colour it already is. Resistance is deliberately not colour-coded — one
- * rule is taught outright, and the nuance is left to be discovered from a
- * damage number that comes back small.
+ * A monster is drawn in the colour it *is*, and the triangle badge in the
+ * corner of the fight says what beats it. That is one hop more than the
+ * scheme this replaced, where a monster wore the colour of its own weakness —
+ * but that scheme could only ever state one of the two rules, because a
+ * single colour has no room for "and this bounces off me". One cycle,
+ * drawn once, says both.
  */
 export function elementColor(element: Element): number {
   switch (element) {
@@ -130,6 +134,97 @@ function line(
 // --- element marks --------------------------------------------------------
 
 /**
+ * One leaflet: pointed at the tip, swelling out, rounding back to a base.
+ *
+ * Eight points rather than four, and that is the whole reason this helper
+ * exists. A four-point leaf is a rhombus, and a rhombus at fifteen pixels is
+ * a diamond — an abstract mark that means nothing, which is exactly what the
+ * leaf element used to read as. The bulge is what makes it a leaf.
+ *
+ * `len` runs tip to base along the local Y axis; `rot` turns the whole thing
+ * about the base so a sprig can fan several of them out.
+ */
+function leaflet(
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  len: number,
+  rot: number,
+  color: number = INK
+): void {
+  const w = len * 0.42;
+  g.save();
+  g.translateCanvas(x, y);
+  g.rotateCanvas(rot);
+  fillPolygon(
+    g,
+    [
+      [0, -len],
+      [w * 0.55, -len * 0.66],
+      [w, -len * 0.24],
+      [w * 0.72, len * 0.08],
+      [0, len * 0.2],
+      [-w * 0.72, len * 0.08],
+      [-w, -len * 0.24],
+      [-w * 0.55, -len * 0.66],
+    ],
+    color,
+    1
+  );
+  g.restore();
+}
+
+/**
+ * One element mark, at an arbitrary place, size and pair of colours.
+ *
+ * Split out of `ensureElementMark` so the triangle badge can draw the same
+ * three marks in their own colours instead of near-white. The badge is the
+ * one place in this file where a glyph is painted rather than tinted at use —
+ * it has to show three elements at once, and a texture tinted at use has only
+ * one colour to give.
+ *
+ * `punch` is whatever sits behind the mark, for the details that have to be
+ * cut out rather than drawn on.
+ */
+function drawMark(
+  g: Phaser.GameObjects.Graphics,
+  element: Element,
+  cx: number,
+  cy: number,
+  r: number,
+  ink: number,
+  punch: number
+): void {
+  if (element === 'fire') {
+    fillPolygon(g, [[cx, cy - r], [cx + r, cy + r * 0.8], [cx - r, cy + r * 0.8]], ink, 1);
+    return;
+  }
+  if (element === 'water') {
+    // A droplet: pointed at the top, heavy and round at the bottom.
+    fillPolygon(
+      g,
+      [[cx, cy - r], [cx + r * 0.72, cy + r * 0.18], [cx, cy + r * 0.5], [cx - r * 0.72, cy + r * 0.18]],
+      ink,
+      1
+    );
+    g.fillStyle(ink, 1);
+    g.fillCircle(cx, cy + r * 0.3, r * 0.62);
+    return;
+  }
+  if (element === 'leaf') {
+    // Stem first, running from below the body down past the bottom edge, so
+    // the silhouette is unmistakably "leaf on a stalk" before any interior
+    // detail is asked to carry meaning.
+    line(g, [[cx, cy + r * 0.45], [cx, cy + r * 1.15]], r * 0.22, ink);
+    leaflet(g, cx, cy + r * 0.5, r * 1.42, 0, ink);
+    line(g, [[cx, cy + r * 0.4], [cx, cy - r * 0.78]], r * 0.21, punch);
+    return;
+  }
+  g.fillStyle(ink, 1);
+  g.fillCircle(cx, cy, r * 0.72);
+}
+
+/**
  * The mark that stands for an element, in shape as well as colour.
  *
  * A flame points up, a droplet hangs down, a leaf sits on its stem. Carrying
@@ -137,27 +232,105 @@ function line(
  * player who cannot separate amber from lime — with no words anywhere, a
  * colour-only code would simply lock them out.
  *
- * The leaf is drawn with a stem rather than as a bare lozenge, which is the
- * one thing separating it from the antidote's leaf in the item tray. Two
- * glyphs that differ only in size are, to a player, one glyph.
+ * The leaf's stem and midrib are what make it a leaf rather than a lozenge,
+ * so both are drawn to survive the two things that used to erase them: the
+ * stem now runs clear of the body instead of being hidden under it, and the
+ * midrib is punched in the backdrop colour rather than laid down in the same
+ * ink, so it is still there after `setTint` flattens the glyph to one colour.
+ * An earlier version drew both in `INK` on an `INK` body and shipped a green
+ * diamond that nobody could read.
  */
 export function ensureElementMark(scene: Phaser.Scene, element: Element): string {
   return glyph(scene, `sigil-mark-${element}`, MARK, (g, s) => {
+    drawMark(g, element, s / 2, s / 2, s * 0.38, INK, PALETTE.skyTop);
+  });
+}
+
+// --- the triangle ---------------------------------------------------------
+
+/** The badge's canvas. Drawn well above the ~96px it is shown at. */
+const TRIANGLE = 128;
+
+/**
+ * One arrow along an edge of the cycle, carrying the attacker's colour.
+ *
+ * Trimmed at both ends so it starts and finishes clear of the marks it runs
+ * between — an arrow that touches both glyphs reads as a bracket joining
+ * them rather than as a direction from one to the other.
+ */
+function cycleArrow(
+  g: Phaser.GameObjects.Graphics,
+  from: [number, number],
+  to: [number, number],
+  gap: number,
+  width: number,
+  color: number
+): void {
+  const angle = Math.atan2(to[1] - from[1], to[0] - from[0]);
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const head = width * 2.6;
+
+  const sx = from[0] + dx * gap;
+  const sy = from[1] + dy * gap;
+  const ex = to[0] - dx * gap;
+  const ey = to[1] - dy * gap;
+
+  line(g, [[sx, sy], [ex - dx * head, ey - dy * head]], width, color);
+
+  const nx = -dy;
+  const ny = dx;
+  fillPolygon(
+    g,
+    [
+      [ex, ey],
+      [ex - dx * head + nx * head * 0.42, ey - dy * head + ny * head * 0.42],
+      [ex - dx * head - nx * head * 0.42, ey - dy * head - ny * head * 0.42],
+    ],
+    color,
+    1
+  );
+}
+
+/**
+ * The cycle, drawn once and shown in the corner of every fight.
+ *
+ * This badge is the whole reason a monster can be painted the colour it *is*
+ * rather than the colour that kills it. Without it the player would be asked
+ * to hold three arbitrary pairings in their head with nothing on screen to
+ * check them against; with it, the rule is never more than a glance away and
+ * the game can stop repeating the answer on every monster's chin.
+ *
+ * Painted rather than tinted at use — three elements at once, and a tinted
+ * texture has only one colour to give.
+ */
+export function ensureTriangleBadge(scene: Phaser.Scene): string {
+  return define(scene, QUEST_TEX.triangle, TRIANGLE, TRIANGLE, (g) => {
+    const s = TRIANGLE;
     const c = s / 2;
-    const r = s * 0.38;
-    if (element === 'fire') {
-      poly(g, [[c, c - r], [c + r, c + r * 0.8], [c - r, c + r * 0.8]]);
-    } else if (element === 'water') {
-      // A droplet: pointed at the top, heavy and round at the bottom.
-      poly(g, [[c, c - r], [c + r * 0.72, c + r * 0.18], [c, c + r * 0.5], [c - r * 0.72, c + r * 0.18]]);
-      g.fillStyle(INK, 1);
-      g.fillCircle(c, c + r * 0.3, r * 0.62);
-    } else if (element === 'leaf') {
-      poly(g, [[c, c - r], [c + r * 0.8, c - r * 0.05], [c, c + r * 0.7], [c - r * 0.8, c - r * 0.05]]);
-      line(g, [[c, c + r], [c, c - r * 0.5]], s * 0.075);
-    } else {
-      g.fillStyle(INK, 1);
-      g.fillCircle(c, c, r * 0.72);
+    const radius = s * 0.315;
+    const panel = shade(PALETTE.surface, 0.1);
+
+    g.fillStyle(panel, 0.92);
+    g.fillRoundedRect(0, 0, s, s, s * 0.17);
+    g.lineStyle(s * 0.016, PALETTE.surfaceEdge, 0.85);
+    g.strokeRoundedRect(0, 0, s, s, s * 0.17);
+
+    // Fire at the apex, then clockwise in the order the cycle runs, so the
+    // arrows never have to cross each other to get where they are going.
+    const at = (element: CastableElement): [number, number] => {
+      const degrees = element === 'fire' ? -90 : element === 'leaf' ? 30 : 150;
+      const a = Phaser.Math.DegToRad(degrees);
+      return [c + Math.cos(a) * radius, c + Math.sin(a) * radius];
+    };
+
+    for (const element of CASTABLE) {
+      cycleArrow(g, at(element), at(BEATS[element]), s * 0.16, s * 0.033, elementColor(element));
+    }
+
+    for (const element of CASTABLE) {
+      const [x, y] = at(element);
+      drawMark(g, element, x, y, s * 0.108, elementColor(element), panel);
     }
   });
 }
@@ -216,17 +389,20 @@ const SKILL_SHAPES: Record<SkillGlyph, Draw> = {
       g.strokePath();
     }
   },
-  // Mends one: a droplet.
+  // Mends one: a cross.
+  //
+  // It was a droplet, which is the same drawing as the water element mark —
+  // and the two sat in the same tray, one grey and one cyan, told apart by
+  // colour alone. That is precisely the failure this file exists to prevent:
+  // a player who cannot separate the hues would have had a heal and a bolt
+  // wearing one shape. A cross belongs to no element and never will.
   drop: (g, s) => {
     const c = s / 2;
-    poly(g, [
-      [c, s * 0.1],
-      [c + s * 0.28, s * 0.58],
-      [c, s * 0.9],
-      [c - s * 0.28, s * 0.58],
-    ]);
+    const arm = s * 0.15;
+    const reach = s * 0.38;
     g.fillStyle(INK, 1);
-    g.fillCircle(c, s * 0.62, s * 0.26);
+    g.fillRoundedRect(c - arm, c - reach, arm * 2, reach * 2, arm * 0.6);
+    g.fillRoundedRect(c - reach, c - arm, reach * 2, arm * 2, arm * 0.6);
   },
   // Mends or blesses over time: a four-petal bloom.
   bloom: (g, s) => {
@@ -296,7 +472,7 @@ export function ensureSkillGlyph(scene: Phaser.Scene, name: SkillGlyph): string 
 
 // --- commands -------------------------------------------------------------
 
-export type CommandGlyph = 'attack' | 'skill' | 'guard' | 'item';
+export type CommandGlyph = 'attack' | 'skill' | 'might' | 'guard' | 'item';
 
 /**
  * The four buttons along the bottom. These four have to be legible cold, with
@@ -309,6 +485,8 @@ export function ensureCommandGlyph(scene: Phaser.Scene, name: CommandGlyph): str
       return glyph(scene, QUEST_TEX.cmdAttack, GLYPH, SKILL_SHAPES.blade);
     case 'skill':
       return ensureRodGlyph(scene);
+    case 'might':
+      return ensureMightGlyph(scene);
     case 'guard':
       return ensureGuardGlyph(scene);
     default:
@@ -354,6 +532,47 @@ function ensureRodGlyph(scene: Phaser.Scene): string {
         [px, py + s * 0.062],
         [px - s * 0.042, py],
       ]);
+    }
+  });
+}
+
+/**
+ * The braced fist: the father's second command.
+ *
+ * He carries no colour at all, so a rod over his button would be the one
+ * thing on his row promising magic — and in a game with no words, a button
+ * that opens a tray of things it did not describe has lied to the only sense
+ * the player has. A fist opens what a fist should open: four ways to hit
+ * something harder than a free swing does.
+ *
+ * Deliberately unlike the blade beside it. The blade is a long vertical
+ * wedge; this is a squat horizontal block, so the two never trade places at
+ * a glance in the command row.
+ */
+function ensureMightGlyph(scene: Phaser.Scene): string {
+  return glyph(scene, QUEST_TEX.cmdMight, GLYPH, (g, s) => {
+    const c = s / 2;
+
+    // The fist: a rounded block of knuckles over a narrower wrist.
+    g.fillStyle(INK, 1);
+    g.fillRoundedRect(s * 0.22, s * 0.3, s * 0.56, s * 0.34, s * 0.12);
+    g.fillRoundedRect(s * 0.3, s * 0.6, s * 0.4, s * 0.16, s * 0.06);
+
+    // Knuckle gaps punched in the backdrop colour, so they are still there
+    // once the glyph is flattened to a single tint.
+    g.fillStyle(PALETTE.skyTop, 1);
+    for (let i = 1; i < 4; i += 1) {
+      g.fillRect(s * 0.22 + (s * 0.56 * i) / 4 - s * 0.012, s * 0.32, s * 0.024, s * 0.16);
+    }
+
+    // The thumb, laid across the front of the fist.
+    g.fillStyle(INK, 1);
+    g.fillRoundedRect(s * 0.16, s * 0.46, s * 0.2, s * 0.12, s * 0.06);
+
+    // Two short lines above, the shorthand this game already uses for force.
+    for (let i = 0; i < 2; i += 1) {
+      const dx = (i === 0 ? -1 : 1) * s * 0.19;
+      line(g, [[c + dx, s * 0.24], [c + dx * 1.35, s * 0.1]], s * 0.06);
     }
   });
 }
@@ -445,14 +664,24 @@ const ITEM_SHAPES: Record<ItemGlyph, Draw> = {
     g.fillStyle(PALETTE.skyTop, 0.45);
     g.fillRect(c - s * 0.16, s * 0.14, s * 0.32, s * 0.24);
   },
+  // The antidote: a sprig of three, not a leaf.
+  //
+  // It used to be a single lozenge, which made it the same drawing as the
+  // leaf element one tray over — and two glyphs that differ only in size are,
+  // to a player, one glyph. That collision got worse once leaf became a third
+  // of the triangle badge: a lone leaf on a button now reads as "cast leaf".
+  // Three leaflets on one stalk is a bundle of herbs, which nothing else in
+  // the game is, and it can never be mistaken for a colour to throw.
   leaf: (g, s) => {
-    poly(g, [
-      [s * 0.5, s * 0.1],
-      [s * 0.86, s * 0.46],
-      [s * 0.5, s * 0.9],
-      [s * 0.14, s * 0.46],
-    ]);
-    line(g, [[s * 0.5, s * 0.18], [s * 0.5, s * 0.84]], s * 0.05, PALETTE.skyTop, 0.5);
+    // The side leaflets alternate up the stalk rather than pairing off it,
+    // which is both what a real sprig does and the only arrangement that
+    // survives being drawn as solid shapes. Two leaflets pivoted from the
+    // same point merge at their bases into one wide mass, and the glyph came
+    // back reading as a leaf sitting in a bowl.
+    line(g, [[s * 0.5, s * 0.94], [s * 0.5, s * 0.3]], s * 0.062);
+    leaflet(g, s * 0.5, s * 0.4, s * 0.3, 0);
+    leaflet(g, s * 0.5, s * 0.62, s * 0.26, Phaser.Math.DegToRad(-70));
+    leaflet(g, s * 0.5, s * 0.8, s * 0.26, Phaser.Math.DegToRad(70));
   },
   orb: (g, s) => {
     const c = s / 2;

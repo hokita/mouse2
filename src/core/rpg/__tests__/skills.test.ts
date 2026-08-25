@@ -71,7 +71,7 @@ describe('the skill table', () => {
     // command menu is decoration.
     expect(SKILLS.bramble.mpCost).toBeGreaterThan(SKILLS.thorn.mpCost);
     expect(SKILLS.chorus.mpCost).toBeGreaterThan(SKILLS.mend.mpCost);
-    expect(SKILLS.cleave.mpCost).toBeGreaterThan(SKILLS.ember.mpCost);
+    expect(SKILLS.cleave.mpCost).toBeGreaterThan(SKILLS.hew.mpCost);
   });
 
   it('covers all three elements between the Wizard bolts', () => {
@@ -89,7 +89,7 @@ describe('the skill table', () => {
 
 describe('isOffensive', () => {
   it('is true for anything aimed at the other side', () => {
-    expect(isOffensive(SKILLS.ember)).toBe(true);
+    expect(isOffensive(SKILLS.hew)).toBe(true);
     expect(isOffensive(SKILLS.daunt)).toBe(true);
     expect(isOffensive(SKILLS.mend)).toBe(false);
     expect(isOffensive(SKILLS.cleanse)).toBe(false);
@@ -103,10 +103,12 @@ describe('the stat behind a skill', () => {
     }
   });
 
-  it('swings muscle behind the Warrior fire skill and magic behind the Wizard bolts', () => {
-    // `ember` is a burning sword, not a spell. Reading the stat off the
-    // element would power the game's heaviest hitter with its worst number.
-    expect(SKILLS.ember.stat).toBe('atk');
+  it('swings muscle behind the Warrior and magic behind the Wizard bolts', () => {
+    // Both `hew` and `force` are `plain`, and they run on opposite stats.
+    // That pair is why the stat is written down rather than read off the
+    // colour: with no colour there, there is nothing to read it off.
+    expect(SKILLS.hew.stat).toBe('atk');
+    expect(SKILLS.force.stat).toBe('mag');
     expect(SKILLS.flare.stat).toBe('mag');
   });
 

@@ -24,7 +24,7 @@ import {
   travelTo,
 } from '../core/rpg/run';
 import type { LevelUp, RunState } from '../core/rpg/run';
-import { PALETTE, displayStyle, shade } from '../ui/theme';
+import { PALETTE, shade } from '../ui/theme';
 import { DEPTH, containerHitArea, createBackButton, createSoundButton, createStarBackdrop, transitionTo } from '../ui/widgets';
 import type { Starfield } from '../ui/widgets';
 import {
@@ -36,6 +36,7 @@ import {
   ensureSkillGlyph,
   ensureUiGlyph,
 } from '../ui/questTextures';
+import { createLevelBadge } from './quest/levelBadge';
 import { createNodeCard } from './quest/nodeCard';
 import type { NodeCard } from './quest/nodeCard';
 import { BATTLE_ACCENT } from './BattleScene';
@@ -133,7 +134,10 @@ export class QuestScene extends Phaser.Scene {
       onTap: () => transitionTo(this, 'MenuScene'),
       isArmed: () => !this.settled,
     });
-    createSoundButton(this, { accent: BATTLE_ACCENT, depth: DEPTH.overlay + 1 });
+    // Lifted onto the back chip's row. Its default seat is directly under
+    // that chip, which is exactly where the party strip sits — the first
+    // hero's portrait, and the level under it, were behind the mute button.
+    createSoundButton(this, { accent: BATTLE_ACCENT, y: 45, depth: DEPTH.overlay + 1 });
 
     playMusic(this, 'quest');
 
@@ -301,11 +305,14 @@ export class QuestScene extends Phaser.Scene {
       bar.lineStyle(1.2, PALETTE.surfaceEdge, 0.8);
       bar.strokeRoundedRect(x - 28, -5, 66, 10, 5);
 
-      const level = this.add
-        .text(x - 44, 20, `${hero.level}`, displayStyle(14, PALETTE.muted))
-        .setOrigin(0.5, 0.5);
+      // The same badge the fight uses, at map scale. It replaced a bare
+      // muted numeral sitting under the portrait, which was a quantity of
+      // something unnamed — and half-hidden behind the mute chip besides.
+      const badge = createLevelBadge(this, x - 55, 11, 8.5, BATTLE_ACCENT);
+      badge.set(hero.level);
+      badge.setDimmed(hero.hp <= 0);
 
-      this.partyStrip.add([plate, sigil, bar, level]);
+      this.partyStrip.add([plate, sigil, bar, badge.container]);
     });
   }
 
