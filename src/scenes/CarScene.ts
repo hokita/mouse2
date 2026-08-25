@@ -7,8 +7,6 @@ import type { DistanceState } from '../core/distance';
 import { laneCenterX, pickSpawnLane } from '../core/lanes';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
-import { speedAt } from '../core/speed';
-import type { SpeedRamp } from '../core/speed';
 import { sweepX, sweepY } from '../core/sweep';
 import { WIDTH, HEIGHT } from '../gameConfig';
 import { PALETTE } from '../ui/theme';
@@ -63,14 +61,14 @@ const MAX_SPAWN_INTERVAL_MS = 1100;
 // CAR_HEIGHT so two cars in the same lane never spawn nose-to-tail.
 const LANE_BLOCKED_ZONE = CAR_HEIGHT * 3;
 
-// Speed is a function of pickups collected, not of time survived: the ramp is
-// driven by `gears * MS_PER_GEAR` instead of elapsed ms. Sit out every pickup
-// and you cruise at `base` forever; take them all and you top out at `max`
-// twelve gears later. Reusing the ramp keeps one description of how the car's
-// speed is shaped, wherever the input to it comes from.
-const SPEED: SpeedRamp = { base: 260, max: 700, rampMs: 60_000 };
-const MS_PER_GEAR = 5_000;
-const GEARS_TO_TOP_SPEED = SPEED.rampMs / MS_PER_GEAR;
+// Speed is a function of pickups collected, not of time survived, and it has
+// no ceiling: every disc is another 10 km/h on the pill, for as long as you
+// can keep taking them. Sit out every pickup and you crawl at SPEED_BASE
+// forever. What ends a run is not topping out, it is that traffic covers the
+// ~800 px from the horizon to your bumper in less and less time — a second of
+// warning at 175 km/h, half that at 350.
+const SPEED_BASE = 120;
+const SPEED_PER_GEAR = 20;
 
 const MIN_BOOST_INTERVAL_MS = 2_000;
 const MAX_BOOST_INTERVAL_MS = 3_500;
@@ -254,7 +252,7 @@ export class CarScene extends Phaser.Scene {
     this.boostSpawnerState = createSpawner(MIN_BOOST_INTERVAL_MS, MAX_BOOST_INTERVAL_MS);
     this.gears = 0;
     this.distancePill.setValue('0 m');
-    this.speedPill.setValue(`${this.displaySpeed(SPEED.base)}`);
+    this.speedPill.setValue(`${this.displaySpeed(SPEED_BASE)}`);
     for (const car of this.traffic) {
       car.sprite.destroy();
       car.glow.destroy();
@@ -286,7 +284,7 @@ export class CarScene extends Phaser.Scene {
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
 
-    const speed = speedAt(this.gears * MS_PER_GEAR, SPEED);
+    const speed = SPEED_BASE + SPEED_PER_GEAR * this.gears;
     const travel = speed * (safeDelta / 1000);
 
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
@@ -462,20 +460,6 @@ export class CarScene extends Phaser.Scene {
   }
 
   private spawnBoost(): void {
-    // Nothing left to give once the ramp is topped out, and a pickup that
-    // does nothing is worse than no pickup at all. Discs already falling
-    // count toward that total: each one is a gear the player has been
-    // promised, so the road stops offering them one disc early rather than
-    // risk leaving a dud on the tarmac. Today the timings rule that out on
-    // their own — at eleven gears a disc clears the screen in 1.53 s, inside
-    // the 2 s minimum between spawns, so it is never airborne when the next
-    // one is offered. That is arithmetic, not design: retune the ramp or the
-    // interval and the guarantee quietly disappears. This keeps it a
-    // property of the code.
-    if (this.gears + this.boosts.length >= GEARS_TO_TOP_SPEED) {
-      return;
-    }
-
     // Borrowing the traffic rule means pickups arrive in the calmer moments —
     // the ones where the detour is a real choice rather than a death sentence.
     const lane = pickSpawnLane(this.busyLanes(), LANE_COUNT);
