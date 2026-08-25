@@ -98,17 +98,26 @@ export const HEROES: Record<HeroId, HeroDef> = {
     // draws from monsters the level-1 party can actually answer, and at level
     // 1 her single bolt IS the party's whole palette.
     //
-    // The colour that goes last in one weight does not go last in the next, so
-    // no colour is the one the player never gets to swing hard.
+    // The colours rotate a place each time the weight goes up, so that across
+    // the three weights every colour opens one and closes one:
+    //
+    //     normal   water  leaf   fire
+    //     strong   leaf   fire   water
+    //     spread   fire   water  leaf
+    //
+    // A colour sitting third in every weight would be the one the player never
+    // gets to swing hard — they would hold heavy fire and heavy water two
+    // levels before they could answer a leaf monster with either. Rotating
+    // shares that wait out instead of always spending it on the same colour.
     learnset: [
       { level: 1, skill: 'torrent' },
       { level: 2, skill: 'thorn' },
       { level: 3, skill: 'flare' },
-      { level: 4, skill: 'deluge' },
+      { level: 4, skill: 'bramble' },
       { level: 5, skill: 'blaze' },
-      { level: 6, skill: 'bramble' },
-      { level: 7, skill: 'flood' },
-      { level: 8, skill: 'wildfire' },
+      { level: 6, skill: 'deluge' },
+      { level: 7, skill: 'wildfire' },
+      { level: 8, skill: 'flood' },
       { level: 9, skill: 'thicket' },
     ],
   },
