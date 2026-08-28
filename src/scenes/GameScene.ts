@@ -796,7 +796,9 @@ export class GameScene extends Phaser.Scene {
     this.state = 'won';
     fadeOutMusic(this);
     playSfx(this, 'explode');
-    playSfx(this, 'milestone');
+    // Delayed so the fanfare reads as the consequence of the boss coming
+    // apart rather than a layer inside it.
+    this.time.delayedCall(180, () => playSfx(this, 'allclear'));
 
     this.scoreState = addPoints(this.scoreState, BOSS_KILL_POINTS);
     this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
