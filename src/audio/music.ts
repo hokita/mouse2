@@ -2,14 +2,14 @@ import { loopLengthSec, sequence, stepDurationSec } from './notes';
 import type { Step } from './notes';
 import { noise, tone } from './synth';
 
-// Seven loops, three tracks each: a bass, a lead and a drum row. Every track is
+// Eight loops, three tracks each: a bass, a lead and a drum row. Every track is
 // 32 steps of an eighth note, which at 100–120 bpm is a loop of eight to ten
 // seconds — long enough not to nag, short enough to render at boot.
 //
 // All three arrays in a spec MUST be 32 entries. The loop point comes from the
 // lead, so a short bass array would silently truncate the loop.
 
-export type MusicName = 'menu' | 'dodger' | 'car' | 'fish' | 'reel' | 'quest' | 'battle';
+export type MusicName = 'menu' | 'dodger' | 'car' | 'fish' | 'reel' | 'quest' | 'battle' | 'boss';
 export type Drum = 'kick' | 'hat' | null;
 
 export interface MusicSpec {
@@ -211,6 +211,34 @@ export const MUSIC: Record<MusicName, MusicSpec> = {
       k, _, h, _, k, _, h, _,
       k, _, h, _, k, _, h, h,
       k, _, h, _, k, h, k, h,
+    ],
+  },
+
+  // The boss, in both games. A pedal that never resolves, the only saw lead
+  // in the cartridge, and a kick on every beat instead of every other one —
+  // three ways of saying the same thing, so the switch reads inside a bar
+  // even on a phone speaker.
+  boss: {
+    bpm: 118,
+    leadType: 'sawtooth',
+    leadGain: 0.12,
+    bass: [
+      'D1', _, 'D1', _, 'D1', _, 'D#1', _,
+      'D1', _, 'D1', _, 'D1', _, 'D#1', _,
+      'D1', _, 'D1', _, 'G#1', _, 'G#1', _,
+      'D1', _, 'D1', _, 'A1', _, 'A1', _,
+    ],
+    lead: [
+      'D4', _, 'F4', _, 'G#4', _, 'F4', _,
+      'D4', _, 'F4', _, 'A4', _, 'G#4', _,
+      'D5', _, 'A4', _, 'G#4', _, 'F4', _,
+      'D4', 'F4', 'G#4', 'A4', 'A#4', _, 'A4', _,
+    ],
+    drums: [
+      k, h, k, h, k, h, k, h,
+      k, h, k, h, k, h, k, h,
+      k, h, k, h, k, h, k, h,
+      k, h, k, h, k, h, k, k,
     ],
   },
 };
