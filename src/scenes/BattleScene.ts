@@ -10,7 +10,7 @@ import {
   livingHeroes,
   takeTurn,
 } from '../core/rpg/battle';
-import type { BattleEvent, BattleState, Combatant, Command } from '../core/rpg/battle';
+import type { BattleEvent, BattleState, Combatant, Command, Side } from '../core/rpg/battle';
 import type { EnemyId } from '../core/rpg/enemies';
 import { ITEMS } from '../core/rpg/items';
 import type { Bag } from '../core/rpg/items';
@@ -19,6 +19,8 @@ import type { Hero } from '../core/rpg/party';
 import { createRng } from '../core/rpg/rng';
 import type { Rng } from '../core/rpg/rng';
 import { SKILLS } from '../core/rpg/skills';
+import type { Skill } from '../core/rpg/skills';
+import { voiceForAct, voiceForEvent } from '../core/rpg/voice';
 import { PALETTE, displayStyle } from '../ui/theme';
 import {
   DEPTH,
@@ -82,6 +84,12 @@ export interface BattleSceneData {
   seed?: number;
   /** Scene to hand back to when the fight ends. Absent means play standalone. */
   returnTo?: string;
+  /**
+   * Passed rather than derived: this scene is playable standalone and has no
+   * access to RunState, so the map stays the only thing that knows what a
+   * node means.
+   */
+  boss?: boolean;
 }
 
 export class BattleScene extends Phaser.Scene {
@@ -102,6 +110,8 @@ export class BattleScene extends Phaser.Scene {
   private party!: Hero[];
   private foes!: EnemyId[];
   private returnTo?: string;
+  /** True for the map's boss node. Drives the music, nothing else. */
+  private isBoss = false;
 
   private enemies!: EnemyRow;
   private roster!: PartyBar;
@@ -112,6 +122,12 @@ export class BattleScene extends Phaser.Scene {
   private settled = false;
   /** True while events are animating — all input is ignored. */
   private busy = false;
+  /**
+   * The skill currently resolving. Damage events do not carry one, but `act`
+   * always precedes its damage inside the same playEvents walk, so this is
+   * where the tier comes from when a hit lands.
+   */
+  private acting: Skill | null = null;
 
   constructor() {
     super('BattleScene');
@@ -122,9 +138,11 @@ export class BattleScene extends Phaser.Scene {
     // rebuilt here rather than carried over from the last visit.
     this.settled = false;
     this.busy = false;
+    this.acting = null;
     this.party = data.party ?? createParty();
     this.foes = data.foes ?? ['blob', 'imp'];
     this.returnTo = data.returnTo;
+    this.isBoss = data.boss ?? false;
     this.rng = createRng(data.seed ?? Date.now() % 100000);
     this.state = createBattle(this.party, this.foes, this.rng, data.bag ?? { potion: 2 });
     this.display = this.state;
@@ -156,7 +174,12 @@ export class BattleScene extends Phaser.Scene {
 
     this.card = createNodeCard(this, BATTLE_ACCENT);
 
-    playMusic(this, 'battle');
+    if (this.isBoss) {
+      playSfx(this, 'warning');
+      playMusic(this, 'boss');
+    } else {
+      playMusic(this, 'battle');
+    }
 
     this.refresh();
     this.time.delayedCall(420, () => this.beginTurn());
@@ -422,6 +445,21 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private playEvent(event: BattleEvent): void {
+    if (event.type === 'act') {
+      this.acting = event.skill ? SKILLS[event.skill] : null;
+      const wind = voiceForAct(this.acting, this.sideOf(event.actor));
+      if (wind !== null) {
+        playSfx(this, wind);
+      }
+      return;
+    }
+
+    const subject = 'target' in event ? event.target : 'actor' in event ? event.actor : null;
+    const voice = voiceForEvent(event, this.acting, subject === null ? 'party' : this.sideOf(subject));
+    if (voice !== null) {
+      playSfx(this, voice);
+    }
+
     switch (event.type) {
       case 'damage': {
         const target = this.find(event.target);
@@ -443,9 +481,6 @@ export class BattleScene extends Phaser.Scene {
         );
         if (weak) {
           this.cameras.main.shake(180, 0.006);
-          playSfx(this, 'weak');
-        } else {
-          playSfx(this, target.side === 'party' ? 'hurt' : 'slash');
         }
         this.flash(event.target);
         this.refresh();
@@ -454,14 +489,12 @@ export class BattleScene extends Phaser.Scene {
       case 'heal': {
         const { x, y } = this.positionOf(event.target);
         this.floatNumber(x, y, `${event.amount}`, PALETTE.mint, 28);
-        playSfx(this, 'heal');
         this.refresh();
         break;
       }
       case 'mp': {
         const { x, y } = this.positionOf(event.target);
         this.floatNumber(x, y, `${event.amount}`, PALETTE.cyan, 24);
-        playSfx(this, 'heal');
         this.refresh();
         break;
       }
@@ -469,7 +502,6 @@ export class BattleScene extends Phaser.Scene {
         const target = this.find(event.target);
         if (target) {
           this.floatPip(target, event.status);
-          playSfx(this, 'afflict');
         }
         this.refresh();
         break;
@@ -479,7 +511,6 @@ export class BattleScene extends Phaser.Scene {
         if (target) {
           this.floatPip(target, event.status, true);
         }
-        playSfx(this, 'guard');
         break;
       }
       case 'cured': {
@@ -488,7 +519,6 @@ export class BattleScene extends Phaser.Scene {
         // tap the game had ignored. Found by auditing every event for visible
         // output after this same shape turned up twice in review.
         this.floatRing(event.target, event.cleared.length > 0);
-        playSfx(this, event.cleared.length > 0 ? 'heal' : 'guard');
         this.refresh();
         break;
       }
@@ -497,7 +527,6 @@ export class BattleScene extends Phaser.Scene {
         // which returns immediately — so with the sound off, Guard produced
         // nothing at all and read as a tap the game had ignored.
         this.floatGuard(event.actor);
-        playSfx(this, 'guard');
         this.refresh();
         break;
       }
@@ -505,13 +534,7 @@ export class BattleScene extends Phaser.Scene {
         if (event.target.startsWith('foe:')) {
           this.enemies.fell(event.target);
         }
-        playSfx(this, 'gameover');
         this.refresh();
-        break;
-      case 'act':
-        if (event.skill && SKILLS[event.skill].mpCost > 0) {
-          playSfx(this, 'cast');
-        }
         break;
       case 'asleep':
         this.refresh();
@@ -523,6 +546,15 @@ export class BattleScene extends Phaser.Scene {
 
   private find(id: string): Combatant | undefined {
     return this.display.combatants.find((c) => c.id === id);
+  }
+
+  /**
+   * Whose side an event is about. Combatant ids are `hero:<id>` or
+   * `foe:<index>`, so the prefix is the fallback when the combatant has
+   * already left the display copy.
+   */
+  private sideOf(id: string): Side {
+    return this.find(id)?.side ?? (id.startsWith('foe:') ? 'foes' : 'party');
   }
 
   private positionOf(id: string): { x: number; y: number } {

@@ -352,6 +352,7 @@ export class QuestScene extends Phaser.Scene {
             bag: this.run.bag,
             seed: battleSeed(this.run, node),
             returnTo: 'QuestScene',
+            boss: node.kind === 'boss',
           });
         });
         break;
@@ -469,7 +470,7 @@ export class QuestScene extends Phaser.Scene {
   private endRun(won: boolean): void {
     this.settled = true;
     this.drawMap();
-    playSfx(this, won ? 'levelup' : 'gameover');
+    playSfx(this, won ? 'allclear' : 'gameover');
     this.card.showOutcome(
       won,
       () => this.scene.restart({}),

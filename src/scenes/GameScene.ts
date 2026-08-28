@@ -782,7 +782,8 @@ export class GameScene extends Phaser.Scene {
   private startBossArrival(): void {
     this.runPhase = 'incoming';
     this.boss = spawnBoss(this);
-    playSfx(this, 'levelup');
+    playSfx(this, 'warning');
+    playMusic(this, 'boss');
     this.cameras.main.flash(220, 255, 95, 126);
     this.cameras.main.shake(300, 0.006);
   }
@@ -795,7 +796,9 @@ export class GameScene extends Phaser.Scene {
     this.state = 'won';
     fadeOutMusic(this);
     playSfx(this, 'explode');
-    playSfx(this, 'milestone');
+    // Delayed so the fanfare reads as the consequence of the boss coming
+    // apart rather than a layer inside it.
+    this.time.delayedCall(180, () => playSfx(this, 'allclear'));
 
     this.scoreState = addPoints(this.scoreState, BOSS_KILL_POINTS);
     this.scorePill.setValue(`${getScoreValue(this.scoreState)}`);
