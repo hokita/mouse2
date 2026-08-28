@@ -84,6 +84,12 @@ export interface BattleSceneData {
   seed?: number;
   /** Scene to hand back to when the fight ends. Absent means play standalone. */
   returnTo?: string;
+  /**
+   * Passed rather than derived: this scene is playable standalone and has no
+   * access to RunState, so the map stays the only thing that knows what a
+   * node means.
+   */
+  boss?: boolean;
 }
 
 export class BattleScene extends Phaser.Scene {
@@ -104,6 +110,8 @@ export class BattleScene extends Phaser.Scene {
   private party!: Hero[];
   private foes!: EnemyId[];
   private returnTo?: string;
+  /** True for the map's boss node. Drives the music, nothing else. */
+  private isBoss = false;
 
   private enemies!: EnemyRow;
   private roster!: PartyBar;
@@ -134,6 +142,7 @@ export class BattleScene extends Phaser.Scene {
     this.party = data.party ?? createParty();
     this.foes = data.foes ?? ['blob', 'imp'];
     this.returnTo = data.returnTo;
+    this.isBoss = data.boss ?? false;
     this.rng = createRng(data.seed ?? Date.now() % 100000);
     this.state = createBattle(this.party, this.foes, this.rng, data.bag ?? { potion: 2 });
     this.display = this.state;
@@ -165,7 +174,12 @@ export class BattleScene extends Phaser.Scene {
 
     this.card = createNodeCard(this, BATTLE_ACCENT);
 
-    playMusic(this, 'battle');
+    if (this.isBoss) {
+      playSfx(this, 'warning');
+      playMusic(this, 'boss');
+    } else {
+      playMusic(this, 'battle');
+    }
 
     this.refresh();
     this.time.delayedCall(420, () => this.beginTurn());

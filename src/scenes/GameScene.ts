@@ -782,7 +782,8 @@ export class GameScene extends Phaser.Scene {
   private startBossArrival(): void {
     this.runPhase = 'incoming';
     this.boss = spawnBoss(this);
-    playSfx(this, 'levelup');
+    playSfx(this, 'warning');
+    playMusic(this, 'boss');
     this.cameras.main.flash(220, 255, 95, 126);
     this.cameras.main.shake(300, 0.006);
   }

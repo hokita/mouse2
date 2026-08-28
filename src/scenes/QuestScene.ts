@@ -352,6 +352,7 @@ export class QuestScene extends Phaser.Scene {
             bag: this.run.bag,
             seed: battleSeed(this.run, node),
             returnTo: 'QuestScene',
+            boss: node.kind === 'boss',
           });
         });
         break;
