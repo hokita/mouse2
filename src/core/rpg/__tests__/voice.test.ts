@@ -34,6 +34,11 @@ describe('voiceForAct', () => {
     expect(voiceForAct(SKILLS.strike, 'party')).toBeNull();
   });
 
+  it('stays silent on a hero’s paid swing too — steel, not colour, whatever it costs', () => {
+    expect(voiceForAct(SKILLS.crush, 'party')).toBeNull();
+    expect(voiceForAct(SKILLS.hew, 'party')).toBeNull();
+  });
+
   it('stays silent when a hero uses an item, which has no skill', () => {
     expect(voiceForAct(null, 'party')).toBeNull();
   });

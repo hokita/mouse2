@@ -155,10 +155,12 @@ voiceForEvent(event: BattleEvent, skill: Skill | null, targetSide: Side): SfxNam
 `voiceForAct`:
 
 - foe actor → `growl`, always.
-- party actor, `mpCost > 0` → `castFire` / `castWater` / `castLeaf` by
-  element, or `cast` when the element is `plain`.
-- party actor, `mpCost === 0` → `null`. The swing is heard as its impact,
-  as it is today.
+- party actor, `stat === 'mag'` and `mpCost > 0` → `castFire` / `castWater` /
+  `castLeaf` by element, or `cast` when the element is `plain`.
+- party actor, `stat === 'atk'` (whatever it costs) or `mpCost === 0` →
+  `null`. The father's paid swings (`hew`, `crush`, `cleave`) get no wind-up
+  sound any more than the free `strike` does — steel, not colour — and the
+  swing is heard as its impact, as it is today.
 
 `voiceForEvent`:
 

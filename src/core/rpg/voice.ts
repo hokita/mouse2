@@ -33,6 +33,13 @@ const IMPACT_BY_TIER: Record<SkillTier, SfxName> = {
 /**
  * The wind-up, played as a turn begins. `skill` is null when the actor used
  * an item, which carries no skill.
+ *
+ * A hero's sword is silent here even when it costs MP: `stat === 'atk'` is
+ * still steel, not colour, so `crush` and `cleave` get no more of a wind-up
+ * than the free `strike` does — they are heard on the way down, through the
+ * tiered slash/heavy/sweep, not on the way up. That silence is also what
+ * keeps `cast` honest: it and its three coloured siblings are reserved for
+ * the `mag` spells, so hearing one means magic is coming and nothing else.
  */
 export function voiceForAct(skill: Skill | null, actorSide: Side): SfxName | null {
   // Heroes and monsters share the SKILLS table, which is right for the
@@ -41,7 +48,7 @@ export function voiceForAct(skill: Skill | null, actorSide: Side): SfxName | nul
   if (actorSide === 'foes') {
     return 'growl';
   }
-  if (skill === null || skill.mpCost === 0) {
+  if (skill === null || skill.mpCost === 0 || skill.stat === 'atk') {
     return null;
   }
   return skill.element === 'plain' ? 'cast' : CAST_BY_ELEMENT[skill.element];

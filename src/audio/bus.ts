@@ -168,6 +168,13 @@ export function playMusic(scene: Phaser.Scene, name: MusicName): void {
 
 /** Fades the loop out and forgets it, so a later playMusic starts it again. */
 export function fadeOutMusic(scene: Phaser.Scene, durationMs: number = GAME_OVER_FADE_MS): void {
+  // A fade-out is a statement that this scene wants silence. If a render for
+  // some other playMusic call is still in flight when it fires, that render
+  // landing later must not override the statement — flushPendingMusic would
+  // start the loop right back up under the outcome card it was just faded
+  // out from under. Clearing unconditionally, before the early return below,
+  // is what makes that true even when there is no `current` loop to fade.
+  pending = null;
   if (current === null) {
     return;
   }

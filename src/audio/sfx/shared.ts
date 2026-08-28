@@ -134,24 +134,33 @@ export const SHARED = {
       // melody: it is the only sound in the game that means something is
       // coming rather than something happened, and it is deliberately not
       // pretty.
+      //
+      // A square alone is a whistle on a phone speaker. A triangle an octave
+      // below each square is what gives it a body — the same trick gameover
+      // uses — so it still reads over a camera flash and a music cut.
       for (let i = 0; i < 3; i += 1) {
         const start = i * 0.3;
-        tone(ctx, dest, {
-          type: 'square',
-          freq: noteToFreq('A4'),
-          start,
-          duration: 0.14,
-          gain: 0.3,
-          attack: 0.06,
-        });
-        tone(ctx, dest, {
-          type: 'square',
-          freq: noteToFreq('D#4'),
-          start: start + 0.15,
-          duration: 0.14,
-          gain: 0.3,
-          attack: 0.06,
-        });
+        for (const [note, offset] of [
+          ['A4', 0],
+          ['D#4', 0.15],
+        ] as const) {
+          tone(ctx, dest, {
+            type: 'square',
+            freq: noteToFreq(note),
+            start: start + offset,
+            duration: 0.14,
+            gain: 0.48,
+            attack: 0.06,
+          });
+          tone(ctx, dest, {
+            type: 'triangle',
+            freq: noteToFreq(note) / 2,
+            start: start + offset,
+            duration: 0.14,
+            gain: 0.32,
+            attack: 0.06,
+          });
+        }
       }
     },
   },
