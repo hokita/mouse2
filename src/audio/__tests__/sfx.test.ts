@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { SFX } from '../sfx';
+import { CAR } from '../sfx/car';
+import { DODGER } from '../sfx/dodger';
+import { FISHING } from '../sfx/fishing';
+import { SHARED } from '../sfx/shared';
+import { SIGIL } from '../sfx/sigil';
 
 // SFX entries are data, but their shape is only visible by running them: a
 // render function schedules voices into whatever context it is handed. This
@@ -85,6 +90,17 @@ class FakeContext {
     return { getChannelData: () => data };
   }
 }
+
+// SFX is composed by spreading five per-game modules; a name defined in two
+// of them would be silently overwritten by whichever spreads last, and every
+// test above iterates the composed record so none of them would notice a
+// sound going missing. Comparing key counts is what catches that a duplicate
+// happened at all.
+it('composes SFX from five modules with no name collisions', () => {
+  const modules = [SHARED, DODGER, CAR, FISHING, SIGIL];
+  const total = modules.reduce((sum, mod) => sum + Object.keys(mod).length, 0);
+  expect(Object.keys(SFX)).toHaveLength(total);
+});
 
 describe.each(Object.entries(SFX))('SFX.%s', (_name, spec) => {
   it('fits every voice inside its durationSec', () => {

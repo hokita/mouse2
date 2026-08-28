@@ -11,6 +11,11 @@ export type { SfxSpec } from './spec';
 // `volume` is the playback level, not the render level. It is per-effect
 // because these are not equals: the all-clear fanfare wants the room, and the
 // Dodger auto-fire tick wants to disappear into it.
+//
+// `volume` alone does not say how loud a sound actually is: its effective
+// loudness is `volume` multiplied by its render's summed voice gains — a
+// module changing gains without a reviewer glancing at `volume` (or the
+// reverse) is how a sound quietly stops carrying.
 export const SFX = {
   ...SHARED,
   ...DODGER,
