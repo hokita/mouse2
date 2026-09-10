@@ -5,6 +5,7 @@ import type { Rect } from '../core/collision';
 import { createDistance, getDistanceValue, tickDistance } from '../core/distance';
 import type { DistanceState } from '../core/distance';
 import { laneCenterX, pickSpawnLane } from '../core/lanes';
+import { projectX, scaleAt } from '../core/perspective';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { sweepX, sweepY } from '../core/sweep';
@@ -15,12 +16,9 @@ import {
   CAR_HEIGHT,
   CAR_WIDTH,
   TEX,
-  ensureBeamTexture,
   ensureBoostTexture,
   ensureCarTexture,
   ensureFxTextures,
-  ensureGradient,
-  ensureRoadTextures,
 } from '../ui/textures';
 import {
   DEPTH,
@@ -31,16 +29,23 @@ import {
   transitionTo,
 } from '../ui/widgets';
 import type { GameOverOverlay, StatPill } from '../ui/widgets';
+import { createPalmAvenue } from './car/palms';
+import type { PalmAvenue } from './car/palms';
+import {
+  HORIZON_Y,
+  LANE_COUNT,
+  PERSPECTIVE,
+  PLAYER_Y,
+  ROAD_LEFT,
+  ROAD_PX_PER_METRE,
+  ROAD_WIDTH,
+  createRoad,
+} from './car/road';
+import type { Road } from './car/road';
+import { createSky } from './car/sky';
+import type { Sky } from './car/sky';
 
 const ACCENT = PALETTE.amber;
-
-const ROAD_MARGIN = 30;
-const ROAD_LEFT = ROAD_MARGIN;
-const ROAD_WIDTH = WIDTH - ROAD_MARGIN * 2;
-const LANE_COUNT = 3;
-
-const PLAYER_MARGIN_BOTTOM = 170;
-const PLAYER_Y = HEIGHT - PLAYER_MARGIN_BOTTOM;
 
 /** The player's car — exported so the menu can show the real thing. */
 export const PLAYER_CAR_COLOR = PALETTE.amber;
@@ -48,33 +53,43 @@ export const PLAYER_CAR_COLOR = PALETTE.amber;
 // Deliberately no amber here: that is the player's own paint job, and traffic
 // that shares it is traffic you stop seeing. No mint either — that belongs to
 // the speed pickups, and a pickup you read as a car is one you swerve around.
-// Each of these also stays clear of the white lane markings and the
-// washed-out asphalt behind them.
+// Each of these also stays clear of the white lane markings and of the warm
+// grey asphalt behind them.
 const TRAFFIC_COLORS = [PALETTE.rose, PALETTE.violet, PALETTE.cyan];
 
 const MIN_SPAWN_INTERVAL_MS = 550;
 const MAX_SPAWN_INTERVAL_MS = 1100;
 
-// A lane counts as blocked (and so is off-limits for a new car) while it
-// still holds traffic within this many pixels of the top of the screen —
-// i.e. roughly where a freshly spawned car would appear. Sized well above
-// CAR_HEIGHT so two cars in the same lane never spawn nose-to-tail.
-const LANE_BLOCKED_ZONE = CAR_HEIGHT * 3;
+// Everything arrives at the horizon, which is where the road begins.
+const SPAWN_Y = HORIZON_Y;
+
+// A lane counts as blocked (and so is off-limits for a new car) while it still
+// holds traffic within this many pixels of the spawn line. Sized well above
+// CAR_HEIGHT so two cars in the same lane never arrive nose-to-tail: every
+// object moves down the screen at one rate, so the gap two of them are given
+// here is the gap they keep all the way to the player.
+//
+// Four car-lengths where the flat road said three, and converted into road
+// pixels rather than left as a screen distance, because both of those keep one
+// number the same: how long a lane stays shut. That is what sets how often a
+// spawn is refused, and so how thick the traffic gets and how often a pickup
+// finds room to appear — the game is tuned around it. (The fourth length is
+// not new strictness: traffic used to be spawned a full car above the top of
+// the screen while the zone was measured from the screen edge, so a lane was
+// always really shut for four lengths' worth of road.)
+const LANE_BLOCKED_ZONE = CAR_HEIGHT * 4 * ROAD_PX_PER_METRE;
 
 // Speed is a function of pickups collected, not of time survived, and it has
 // no ceiling: every disc is another 10 km/h on the pill, for as long as you
 // can keep taking them. Sit out every pickup and you crawl at SPEED_BASE
 // forever. What ends a run is not topping out, it is that traffic covers the
-// ~800 px from the horizon to your bumper in less and less time — a second of
+// road from the horizon to your bumper in less and less time — a second of
 // warning at 175 km/h, half that at 350.
 const SPEED_BASE = 120;
 const SPEED_PER_GEAR = 20;
 
 const MIN_BOOST_INTERVAL_MS = 2_000;
 const MAX_BOOST_INTERVAL_MS = 3_500;
-
-const KERB_WIDTH = 8;
-const LANE_LINE_WIDTH = 8;
 
 // Caps how much sim time a single frame advances the road by, so a stalled
 // frame (a backgrounded tab, say) doesn't teleport the whole field of traffic
@@ -86,31 +101,59 @@ const MAX_DELTA_MS = 100;
 /** How far apart the distance chimes are. */
 const MILESTONE_METRES = 500;
 
+// Scale is honest perspective right up to the point where honesty costs more
+// than it buys: a car exactly on the horizon is a fraction of a pixel across,
+// which is a flicker rather than a warning. Everything on the road is drawn at
+// least this big. It only ever bites in the first few pixels of the journey,
+// under the thickest of the haze.
+const MIN_DRAW_SCALE = 0.2;
+
+/** How far down the road something takes to fade up out of the haze. */
+const HAZE_FADE_PX = 80;
+
+/** The shadow every car casts, with the sun dead ahead on the horizon. */
+const SHADOW_COLOR = 0x2a1b3a;
+
+// Traffic is depth-sorted by how far down the road it is, so a nearer car
+// always draws over a farther one — the lanes converge, and without this two
+// cars that overlap near the horizon would take turns being in front. The step
+// is small enough that the whole road, bumper to horizon, still fits in the gap
+// between DEPTH.world and DEPTH.effects rather than climbing into the HUD.
+const DEPTH_PER_PX = 0.005;
+/** Above every other thing on the road: nothing is nearer than the player. */
+const PLAYER_DEPTH = DEPTH.world + HEIGHT * DEPTH_PER_PX + 0.1;
+
 type GameState = 'playing' | 'gameOver';
 
-/** A speed pickup falling down the road. Collect it to gain a gear. */
-interface BoostItem {
-  sprite: Phaser.GameObjects.Image;
-  /** Mint bloom that pulses under the disc, so it reads as a prize. */
-  glow: Phaser.GameObjects.Image;
+/**
+ * Something standing on the road: traffic, or a pickup.
+ *
+ * Its art is a container so that a body, its shadow and any bloom are scaled,
+ * faded and depth-sorted as the single object they represent — and so that the
+ * one `place` below can handle both kinds.
+ */
+interface RoadThing {
+  art: Phaser.GameObjects.Container;
   lane: number;
-}
-
-interface TrafficCar {
-  sprite: Phaser.GameObjects.Image;
-  /** Tail-light bloom that follows the car down the road. */
-  glow: Phaser.GameObjects.Image;
-  lane: number;
+  /**
+   * Footprint at 1:1, i.e. at the player's row. What it is drawn at and hit at
+   * anywhere else is this scaled by its distance, which is the whole reason
+   * the projection lives in core: art and hitbox cannot be allowed to
+   * disagree about how much road a car takes up.
+   */
+  width: number;
+  height: number;
 }
 
 export class CarScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Image;
-  private headlights!: Phaser.GameObjects.Image;
+  private playerShadow!: Phaser.GameObjects.Image;
   private prevPlayerX!: number;
-  private traffic: TrafficCar[] = [];
-  private boosts: BoostItem[] = [];
-  /** Every surface that scrolls with the road: verges, asphalt, markings. */
-  private scrollLayers: Phaser.GameObjects.TileSprite[] = [];
+  private traffic: RoadThing[] = [];
+  private boosts: RoadThing[] = [];
+  private road!: Road;
+  private sky!: Sky;
+  private palms!: PalmAvenue;
   private distanceState!: DistanceState;
   private spawnerState!: SpawnerState;
   private boostSpawnerState!: SpawnerState;
@@ -131,25 +174,27 @@ export class CarScene extends Phaser.Scene {
 
   create(): void {
     ensureFxTextures(this);
-    ensureRoadTextures(this);
     ensureBoostTexture(this);
-    this.buildRoad();
+
+    this.road = createRoad(this);
+    this.sky = createSky(this);
+    this.palms = createPalmAvenue(this);
+
+    const startX = laneCenterX(1, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH);
+
+    // The car's own shadow, which is all that is left of what used to be a
+    // headlight cone: the sun is up, and a beam thrown down a lit road reads
+    // as a smear rather than as light.
+    this.playerShadow = this.add
+      .image(startX, PLAYER_Y + CAR_HEIGHT * 0.4, TEX.glow)
+      .setDisplaySize(CAR_WIDTH * 1.5, CAR_HEIGHT * 0.5)
+      .setTint(SHADOW_COLOR)
+      .setAlpha(0.38)
+      .setDepth(PLAYER_DEPTH - 0.05);
 
     this.player = this.add
-      .image(laneCenterX(1, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH), PLAYER_Y, ensureCarTexture(this, PLAYER_CAR_COLOR, { stripe: true }))
-      .setDepth(DEPTH.world + 1);
-
-    // A warm cone thrown ahead of the player's bonnet. It is what makes the
-    // scene read as a night drive rather than a grey rectangle. Anchored at
-    // its bottom edge so the narrow end stays pinned to the car's nose.
-    this.headlights = this.add
-      .image(this.player.x, PLAYER_Y - CAR_HEIGHT * 0.4, ensureBeamTexture(this))
-      .setOrigin(0.5, 1)
-      .setDisplaySize(CAR_WIDTH * 3, CAR_HEIGHT * 2.6)
-      .setTint(0xffe6a8)
-      .setAlpha(0.55)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(DEPTH.world);
+      .image(startX, PLAYER_Y, ensureCarTexture(this, PLAYER_CAR_COLOR, { stripe: true }))
+      .setDepth(PLAYER_DEPTH);
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.handlePointerMove(pointer));
@@ -191,58 +236,6 @@ export class CarScene extends Phaser.Scene {
     this.resetState();
   }
 
-  /**
-   * The road is built from tiling strips rather than individual objects: one
-   * texture per surface, scrolled by its tile offset. Nothing to spawn,
-   * nothing to wrap by hand, and the markings stay pixel-stable at any speed.
-   */
-  private buildRoad(): void {
-    // A Scene instance outlives a restart but its display list does not, so
-    // start from an empty layer list rather than appending to dead objects.
-    this.scrollLayers = [];
-
-    // Night sky over the verge, so the horizon end of the road is darker.
-    this.add
-      .image(WIDTH / 2, HEIGHT / 2, ensureGradient(this, PALETTE.skyTop, PALETTE.grassDark))
-      .setDisplaySize(WIDTH, HEIGHT)
-      .setDepth(DEPTH.backdrop);
-
-    const grass = this.add
-      .tileSprite(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, TEX.grass)
-      .setAlpha(0.7)
-      .setDepth(DEPTH.backdrop);
-
-    const asphalt = this.add
-      .tileSprite(ROAD_LEFT + ROAD_WIDTH / 2, HEIGHT / 2, ROAD_WIDTH, HEIGHT, TEX.asphalt)
-      .setDepth(DEPTH.backdrop + 1);
-
-    this.scrollLayers.push(grass, asphalt);
-
-    for (const edge of [ROAD_LEFT, ROAD_LEFT + ROAD_WIDTH]) {
-      this.scrollLayers.push(
-        this.add.tileSprite(edge, HEIGHT / 2, KERB_WIDTH, HEIGHT, TEX.kerb).setDepth(DEPTH.backdrop + 2)
-      );
-    }
-
-    for (let boundary = 1; boundary < LANE_COUNT; boundary += 1) {
-      const x = ROAD_LEFT + (ROAD_WIDTH * boundary) / LANE_COUNT;
-      this.scrollLayers.push(
-        this.add
-          .tileSprite(x, HEIGHT / 2, LANE_LINE_WIDTH, HEIGHT, TEX.laneDash)
-          .setDepth(DEPTH.backdrop + 2)
-      );
-    }
-
-    // Darkness at the top of the screen: traffic fades up out of it instead of
-    // popping into existence at the screen edge.
-    this.add
-      .image(WIDTH / 2, 0, TEX.topFade)
-      .setOrigin(0.5, 0)
-      .setDisplaySize(WIDTH, 200)
-      .setAlpha(0.9)
-      .setDepth(DEPTH.effects);
-  }
-
   private resetState(): void {
     this.state = 'playing';
     this.overlayShown = false;
@@ -254,14 +247,15 @@ export class CarScene extends Phaser.Scene {
     this.distancePill.setValue('0 m');
     this.speedPill.setValue(`${this.displaySpeed(SPEED_BASE)}`);
     for (const car of this.traffic) {
-      car.sprite.destroy();
-      car.glow.destroy();
+      car.art.destroy();
     }
     this.traffic = [];
     for (const boost of this.boosts) {
       this.destroyBoost(boost);
     }
     this.boosts = [];
+    this.road.reset();
+    this.palms.reset();
     this.tweens.killTweensOf(this.speedPill.container);
     this.speedPill.container.setScale(1);
     const startX = laneCenterX(1, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH);
@@ -270,7 +264,7 @@ export class CarScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.player);
     this.player.x = startX;
     this.player.setVisible(true).setRotation(0);
-    this.headlights.setVisible(true).setX(startX);
+    this.playerShadow.setVisible(true).setX(startX);
     this.prevPlayerX = startX;
     this.dragging = false;
     this.lastMilestone = 0;
@@ -284,11 +278,14 @@ export class CarScene extends Phaser.Scene {
 
     const safeDelta = Math.min(delta, MAX_DELTA_MS);
 
+    // Two different quantities, and the run depends on not confusing them:
+    // `speed` is metres per second, which is what the readouts and the
+    // distance count are in, and `travel` is the pixels of road that buys.
     const speed = SPEED_BASE + SPEED_PER_GEAR * this.gears;
-    const travel = speed * (safeDelta / 1000);
+    const travel = speed * (safeDelta / 1000) * ROAD_PX_PER_METRE;
 
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, 0, Math.min(1, safeDelta / 110));
-    this.headlights.x = this.player.x;
+    this.playerShadow.x = this.player.x;
 
     this.distanceState = tickDistance(this.distanceState, speed, safeDelta);
     this.distancePill.setValue(`${getDistanceValue(this.distanceState)} m`);
@@ -323,27 +320,25 @@ export class CarScene extends Phaser.Scene {
     // player had already cleared.
     const playerRect = rectAt(this.player.x, PLAYER_Y, CAR_WIDTH, CAR_HEIGHT);
     const steerPath = sweepX(playerRect, this.prevPlayerX - CAR_WIDTH / 2);
-    let crashed = this.traffic.some((car) => intersects(steerPath, this.carRect(car)));
+    let crashed = this.traffic.some((car) => intersects(steerPath, this.thingRect(car)));
 
     for (const car of this.traffic) {
-      car.sprite.y += travel;
-      car.glow.y = car.sprite.y + CAR_HEIGHT * 0.42;
+      car.art.y += travel;
+      this.place(car);
     }
 
     if (!crashed) {
       crashed = this.traffic.some((car) => {
-        const rect = this.carRect(car);
+        const rect = this.thingRect(car);
         return intersects(playerRect, sweepY(rect, rect.y - travel));
       });
     }
 
     this.updateBoosts(travel, playerRect, steerPath, crashed);
 
-    // Scrolling the tile offset the other way moves the drawn road *down* the
-    // screen, which is what makes the player look like the one moving.
-    for (const layer of this.scrollLayers) {
-      layer.tilePositionY -= travel;
-    }
+    this.road.scroll(travel);
+    this.palms.scroll(travel);
+    this.sky.drift(travel);
 
     if (crashed) {
       this.triggerGameOver();
@@ -351,9 +346,8 @@ export class CarScene extends Phaser.Scene {
     this.prevPlayerX = this.player.x;
 
     this.traffic = this.traffic.filter((car) => {
-      if (car.sprite.y > HEIGHT + CAR_HEIGHT) {
-        car.sprite.destroy();
-        car.glow.destroy();
+      if (car.art.y > HEIGHT + CAR_HEIGHT) {
+        car.art.destroy();
         return false;
       }
       return true;
@@ -376,11 +370,28 @@ export class CarScene extends Phaser.Scene {
 
   private steerTo(x: number): void {
     const half = CAR_WIDTH / 2;
+    // The player's own row is the one the road is full width at, so these are
+    // the road's edges as drawn, with no projection needed.
     const next = Phaser.Math.Clamp(x, ROAD_LEFT + half, ROAD_LEFT + ROAD_WIDTH - half);
     // Lean into the lane change. Cosmetic — the collision box stays square on.
     const lean = Phaser.Math.Clamp((next - this.player.x) * 0.022, -0.2, 0.2);
     this.player.x = next;
     this.player.setRotation(lean);
+  }
+
+  /**
+   * Stands a thing on the road at the row its art has reached: scaled to its
+   * distance, slid onto its lane's projected centre, faded up out of the haze,
+   * and given a depth that keeps nearer traffic in front of farther traffic.
+   */
+  private place(thing: RoadThing): void {
+    const y = thing.art.y;
+    const scale = Math.max(MIN_DRAW_SCALE, scaleAt(PERSPECTIVE, y));
+    thing.art
+      .setX(projectX(PERSPECTIVE, laneCenterX(thing.lane, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH), y))
+      .setScale(scale)
+      .setAlpha(Phaser.Math.Clamp((y - HORIZON_Y) / HAZE_FADE_PX, 0, 1))
+      .setDepth(DEPTH.world + y * DEPTH_PER_PX);
   }
 
   private spawnTraffic(): void {
@@ -390,19 +401,25 @@ export class CarScene extends Phaser.Scene {
     }
 
     const color = TRAFFIC_COLORS[Phaser.Math.Between(0, TRAFFIC_COLORS.length - 1)];
-    const x = laneCenterX(lane, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH);
 
-    const glow = this.add
-      .image(x, -CAR_HEIGHT, TEX.glow)
-      .setDisplaySize(CAR_WIDTH * 2.2, CAR_HEIGHT * 0.9)
-      .setTint(0xff4d4d)
-      .setAlpha(0.35)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(DEPTH.world - 1);
+    // The shadow falls toward the camera, because the only light worth drawing
+    // for is the sun sitting on the vanishing point straight ahead.
+    const shadow = this.add
+      .image(0, CAR_HEIGHT * 0.4, TEX.glow)
+      .setDisplaySize(CAR_WIDTH * 1.5, CAR_HEIGHT * 0.5)
+      .setTint(SHADOW_COLOR)
+      .setAlpha(0.38);
 
-    const sprite = this.add.image(x, -CAR_HEIGHT, ensureCarTexture(this, color)).setDepth(DEPTH.world);
+    const body = this.add.image(0, 0, ensureCarTexture(this, color));
 
-    this.traffic.push({ sprite, glow, lane });
+    const car: RoadThing = {
+      art: this.add.container(0, SPAWN_Y, [shadow, body]),
+      lane,
+      width: CAR_WIDTH,
+      height: CAR_HEIGHT,
+    };
+    this.place(car);
+    this.traffic.push(car);
   }
 
   /**
@@ -410,16 +427,16 @@ export class CarScene extends Phaser.Scene {
    * drops the ones that got past it. Collection uses the same two-phase swept
    * test the traffic gets, for the same reason: the steer and the road's
    * movement happened at different moments in the frame, and a pickup taken
-   * at 700 px/s is one the car would otherwise tunnel straight through.
+   * at speed is one the car would otherwise tunnel straight through.
    */
   private updateBoosts(travel: number, playerRect: Rect, steerPath: Rect, crashed: boolean): void {
     let collected = 0;
 
     this.boosts = this.boosts.filter((boost) => {
-      const before = this.boostRect(boost);
-      boost.sprite.y += travel;
-      boost.glow.y = boost.sprite.y;
-      const after = this.boostRect(boost);
+      const before = this.thingRect(boost);
+      boost.art.y += travel;
+      this.place(boost);
+      const after = this.thingRect(boost);
 
       // A crash ends the run this frame; a pickup chimed alongside it would
       // only muddy the moment.
@@ -428,12 +445,12 @@ export class CarScene extends Phaser.Scene {
         (intersects(steerPath, before) || intersects(playerRect, sweepY(after, before.y)));
       if (taken) {
         collected += 1;
-        this.burstAt(boost.sprite.x, boost.sprite.y);
+        this.burstAt(boost.art.x, boost.art.y);
         this.destroyBoost(boost);
         return false;
       }
 
-      if (boost.sprite.y > HEIGHT + BOOST_SIZE) {
+      if (boost.art.y > HEIGHT + BOOST_SIZE) {
         this.destroyBoost(boost);
         return false;
       }
@@ -467,17 +484,16 @@ export class CarScene extends Phaser.Scene {
       return;
     }
 
-    const x = laneCenterX(lane, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH);
-
+    // Mint bloom under the disc, so it reads as a prize. It pulses inside the
+    // container rather than on it: the container's own alpha belongs to the
+    // haze, and two things writing one alpha would leave the pickup flickering
+    // in and out of the distance.
     const glow = this.add
-      .image(x, -BOOST_SIZE, TEX.glow)
+      .image(0, 0, TEX.glow)
       .setDisplaySize(BOOST_SIZE * 2.4, BOOST_SIZE * 2.4)
       .setTint(PALETTE.mint)
       .setAlpha(0.45)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(DEPTH.world - 1);
-
-    const sprite = this.add.image(x, -BOOST_SIZE, TEX.boost).setDepth(DEPTH.world);
+      .setBlendMode(Phaser.BlendModes.ADD);
 
     this.tweens.add({
       targets: glow,
@@ -488,14 +504,24 @@ export class CarScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    this.boosts.push({ sprite, glow, lane });
+    const disc = this.add.image(0, 0, TEX.boost);
+
+    const boost: RoadThing = {
+      art: this.add.container(0, SPAWN_Y, [glow, disc]),
+      lane,
+      width: BOOST_SIZE,
+      height: BOOST_SIZE,
+    };
+    this.place(boost);
+    this.boosts.push(boost);
   }
 
-  private destroyBoost(boost: BoostItem): void {
-    // The glow carries a looping tween; kill it before the target goes away.
-    this.tweens.killTweensOf(boost.glow);
-    boost.glow.destroy();
-    boost.sprite.destroy();
+  private destroyBoost(boost: RoadThing): void {
+    // The bloom carries a looping tween; kill it before the target goes away.
+    for (const child of boost.art.list) {
+      this.tweens.killTweensOf(child);
+    }
+    boost.art.destroy();
   }
 
   /** Mint sparks where a pickup was taken. */
@@ -514,33 +540,35 @@ export class CarScene extends Phaser.Scene {
     this.time.delayedCall(700, () => sparks.destroy());
   }
 
-  private boostRect(boost: BoostItem): Rect {
-    return rectAt(boost.sprite.x, boost.sprite.y, BOOST_SIZE, BOOST_SIZE);
+  /**
+   * Lanes that already hold something close enough to the horizon that a new
+   * arrival would land alongside it.
+   *
+   * Traffic and pickups count the same, in both directions. Everything on the
+   * road moves at one rate, so whatever gap two objects arrive with is the gap
+   * they keep for the rest of their lives: a disc dropped a half-car behind a
+   * bumper stays a half-car behind that bumper all the way down the road.
+   * Grabbing it would mean entering the lane with no room to leave — a trap
+   * dressed as a reward.
+   */
+  private busyLanes(): number[] {
+    const blockedBelow = SPAWN_Y + LANE_BLOCKED_ZONE;
+    return [...this.traffic, ...this.boosts]
+      .filter((thing) => thing.art.y < blockedBelow)
+      .map((thing) => thing.lane);
   }
 
   /**
-   * Lanes that already hold something close enough to the top of the road
-   * that a new arrival would land alongside it.
-   *
-   * Traffic and pickups count the same, in both directions. Everything on
-   * the road falls at one speed, so whatever gap two objects spawn with is
-   * the gap they keep for the rest of their lives: a disc dropped a
-   * half-car behind a bumper stays a half-car behind that bumper all the way
-   * down the screen. Grabbing it would mean entering the lane with no room
-   * to leave — a trap dressed as a reward.
+   * The box a thing occupies, taken from the size it is actually drawn at.
+   * Read from the art rather than recomputed so that nothing the player can
+   * see can ever be out of step with what the collision test believes.
    */
-  private busyLanes(): number[] {
-    return [
-      ...this.traffic.filter((car) => car.sprite.y < LANE_BLOCKED_ZONE).map((car) => car.lane),
-      ...this.boosts.filter((boost) => boost.sprite.y < LANE_BLOCKED_ZONE).map((boost) => boost.lane),
-    ];
+  private thingRect(thing: RoadThing): Rect {
+    const scale = thing.art.scaleX;
+    return rectAt(thing.art.x, thing.art.y, thing.width * scale, thing.height * scale);
   }
 
-  private carRect(car: TrafficCar): Rect {
-    return rectAt(car.sprite.x, car.sprite.y, CAR_WIDTH, CAR_HEIGHT);
-  }
-
-  /** Cosmetic readout only — the px/s speed scaled into believable km/h. */
+  /** Cosmetic readout only — the metres-per-second scaled into km/h. */
   private displaySpeed(speed: number): number {
     return Math.round(speed / 2);
   }
@@ -565,7 +593,6 @@ export class CarScene extends Phaser.Scene {
     debris.explode(26);
     this.time.delayedCall(1100, () => debris.destroy());
 
-    this.headlights.setVisible(false);
     this.cameras.main.shake(300, 0.016);
     this.cameras.main.flash(180, 255, 179, 71);
     // The wreck spins out rather than freezing mid-lane.

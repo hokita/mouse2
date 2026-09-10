@@ -32,14 +32,47 @@ export const PALETTE = {
   rose: 0xff5f7e,
   mint: 0x5ef2a8,
 
-  /** Car Racer's world — a night drive, so the verge stays well under the
-   * road in brightness and never competes with the traffic. */
+  /**
+   * Two greens, originally Car Racer's night verge and now the pond's reeds
+   * and lily pads — see Fish Catch below, which is the only thing still
+   * drawing with them.
+   */
   grass: 0x17402a,
   grassDark: 0x0e2619,
-  asphalt: 0x333849,
-  asphaltDark: 0x282c3b,
-  laneLine: 0xeef1ff,
-  kerbRed: 0xd94a4a,
+
+  /**
+   * Car Racer's world — a coast road driven into the sunset, which is the one
+   * picture the whole genre is built on.
+   *
+   * The sky is the light source and everything on the ground answers to it:
+   * the sun sits dead on the vanishing point, the hills between it and the
+   * road are tinted toward it rather than toward black, and the asphalt is a
+   * warm grey so the road reads as lit from ahead rather than from overhead.
+   *
+   * These are the brightest surfaces in the project — a deliberate break from
+   * the other four games' night. The traffic still has to win against them,
+   * which is why the verge greens stay mid-tone rather than vivid: a lime
+   * verge would out-shout the cars it is there to frame.
+   */
+  sunsetHigh: 0x2b1b5e,
+  sunsetMid: 0x7b3a86,
+  sunsetWarm: 0xe4645f,
+  sunsetLow: 0xffb45c,
+  sunCore: 0xfff3ab,
+  sunEdge: 0xff5f6d,
+  /** Two ridges between the road and the sun, the near one deeper. */
+  hillFar: 0x6a4180,
+  hillNear: 0x35244f,
+  verge: 0x39a45b,
+  vergeDark: 0x2a8148,
+  /** The shoulder either side of the road, and the beach the hills sit on. */
+  sand: 0xe8c88e,
+  asphalt: 0x72727f,
+  asphaltDark: 0x666674,
+  laneLine: 0xf7f9ff,
+  kerbRed: 0xe23c3c,
+  palmTrunk: 0x7b5536,
+  palmFrond: 0x1e7a49,
 
   /** Fish Catch's world — a night pond, lit from under the surface. The
    * backdrop stays as dark as the other games' sky so the menu and the three

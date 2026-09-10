@@ -19,13 +19,14 @@ export const TEX = {
   starsNear: 'fx-stars-near',
   starsFar: 'fx-stars-far',
   topFade: 'fx-top-fade',
-  beam: 'fx-beam',
+  haze: 'fx-haze',
   ship: 'dodger-ship',
   boss: 'dodger-boss',
-  grass: 'road-grass',
-  asphalt: 'road-asphalt',
-  laneDash: 'road-lane-dash',
-  kerb: 'road-kerb',
+  sky: 'car-sky',
+  sun: 'car-sun',
+  hills: 'car-hills',
+  clouds: 'car-clouds',
+  palm: 'car-palm',
   boost: 'car-boost',
 } as const;
 
@@ -102,26 +103,13 @@ export function ensureFxTextures(scene: Phaser.Scene): void {
       g.fillRect(0, i, 4, 1);
     }
   });
-}
 
-/**
- * A headlight cone: narrow and bright where it leaves the car (the bottom of
- * the texture), spreading and fading into the distance. Each row is drawn as
- * three nested translucent bars, which is what softens the edges of the beam
- * instead of leaving it a hard-edged triangle.
- */
-export function ensureBeamTexture(scene: Phaser.Scene): string {
-  return define(scene, TEX.beam, 128, 256, (g) => {
-    const layers = 9;
+  // The same ramp in white, to be tinted where it is used: laid over the far
+  // end of Car Racer's road it is the haze the horizon fades into.
+  define(scene, TEX.haze, 4, 256, (g) => {
     for (let i = 0; i < 256; i += 1) {
-      const nearness = i / 255;
-      const halfWidth = 12 + (1 - nearness) * 50;
-      const falloff = Math.pow(nearness, 1.6);
-      for (let layer = 0; layer < layers; layer += 1) {
-        const half = halfWidth * (1 - (layer / layers) * 0.88);
-        g.fillStyle(0xffffff, falloff * 0.06);
-        g.fillRect(64 - half, i, half * 2, 1);
-      }
+      g.fillStyle(0xffffff, Math.pow(1 - i / 255, 2.2));
+      g.fillRect(0, i, 4, 1);
     }
   });
 }
@@ -354,43 +342,201 @@ export function ensureCarTexture(
   });
 }
 
-export function ensureRoadTextures(scene: Phaser.Scene): void {
-  define(scene, TEX.grass, 128, 128, (g) => {
-    g.fillStyle(PALETTE.grass, 1);
-    g.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 220; i += 1) {
-      const x = Math.random() * 128;
-      const y = Math.random() * 128;
-      g.fillStyle(Math.random() < 0.5 ? PALETTE.grassDark : shade(PALETTE.grass, 0.18), 0.5);
-      g.fillRect(x, y, 1 + Math.random() * 3, 1 + Math.random() * 5);
+// The road itself is not a texture any more: it is redrawn every frame in
+// perspective by scenes/car/road.ts, which needs the markings to bunch up
+// toward the horizon rather than repeat at a fixed pitch. What is left here is
+// the scenery the road drives into.
+
+export const SUN_SIZE = 200;
+export const PALM_WIDTH = 76;
+export const PALM_HEIGHT = 172;
+
+/**
+ * The sky, as one tall gradient: indigo overhead through violet and a red
+ * band into gold at the horizon. Four stops rather than two because a single
+ * interpolation from indigo to gold passes through a muddy brown — the red
+ * band in the middle is what makes it read as a sunset.
+ */
+export function ensureSkyTexture(scene: Phaser.Scene): string {
+  const stops: [number, number][] = [
+    [0, PALETTE.sunsetHigh],
+    [0.42, PALETTE.sunsetMid],
+    [0.74, PALETTE.sunsetWarm],
+    [1, PALETTE.sunsetLow],
+  ];
+
+  return define(scene, TEX.sky, 4, 256, (g) => {
+    for (let i = 0; i < 256; i += 1) {
+      const t = i / 255;
+      let next = 1;
+      while (next < stops.length - 1 && stops[next][0] < t) {
+        next += 1;
+      }
+      const [fromStop, fromColor] = stops[next - 1];
+      const [toStop, toColor] = stops[next];
+      const local = (t - fromStop) / (toStop - fromStop);
+      const mixed = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.IntegerToColor(fromColor),
+        Phaser.Display.Color.IntegerToColor(toColor),
+        100,
+        Math.round(local * 100)
+      );
+      g.fillStyle(Phaser.Display.Color.GetColor(mixed.r, mixed.g, mixed.b), 1);
+      g.fillRect(0, i, 4, 1);
     }
   });
+}
 
-  define(scene, TEX.asphalt, 128, 128, (g) => {
-    g.fillStyle(PALETTE.asphalt, 1);
-    g.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 260; i += 1) {
-      const x = Math.random() * 128;
-      const y = Math.random() * 128;
-      g.fillStyle(Math.random() < 0.5 ? PALETTE.asphaltDark : shade(PALETTE.asphalt, 0.14), 0.55);
-      g.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2);
+/**
+ * The sun, sitting on the vanishing point: a disc that pales from gold at the
+ * top to red at the bottom, sliced by gaps that widen as they go down.
+ *
+ * The gaps are drawn as absence rather than as bars of sky — the sky behind it
+ * is a gradient, so painted-on bars would only match at one height and show as
+ * a seam everywhere else.
+ */
+export function ensureSunTexture(scene: Phaser.Scene): string {
+  return define(scene, TEX.sun, SUN_SIZE, SUN_SIZE, (g) => {
+    const radius = SUN_SIZE / 2;
+
+    // Walk down from a fifth of the way in, laying out the gaps: each bar of
+    // sun is thinner than the one above it and each gap is wider, which is
+    // what makes the disc look like it is sinking rather than stencilled. The
+    // walk starts high because only the part above the horizon is ever seen.
+    const gaps: [number, number][] = [];
+    let cursor = SUN_SIZE * 0.2;
+    let bar = SUN_SIZE * 0.11;
+    let gap = SUN_SIZE * 0.021;
+    while (cursor < SUN_SIZE) {
+      cursor += bar;
+      gaps.push([cursor, cursor + gap]);
+      cursor += gap;
+      bar = Math.max(SUN_SIZE * 0.03, bar * 0.78);
+      gap *= 1.24;
     }
-    // Only speckle here, no long streaks: anything that runs the full height
-    // of the tile lines up with its own copies and reads as a seam in the
-    // road rather than as texture.
-  });
 
-  // One dash plus one gap, so the strip repeats seamlessly as it scrolls.
-  define(scene, TEX.laneDash, 8, 128, (g) => {
-    g.fillStyle(PALETTE.laneLine, 0.85);
-    g.fillRoundedRect(0, 20, 8, 64, 4);
-  });
+    const from = Phaser.Display.Color.IntegerToColor(PALETTE.sunCore);
+    const to = Phaser.Display.Color.IntegerToColor(PALETTE.sunEdge);
 
-  define(scene, TEX.kerb, 8, 64, (g) => {
-    g.fillStyle(PALETTE.kerbRed, 1);
-    g.fillRect(0, 0, 8, 32);
-    g.fillStyle(0xf3f5ff, 1);
-    g.fillRect(0, 32, 8, 32);
+    for (let y = 0; y < SUN_SIZE; y += 1) {
+      if (gaps.some(([top, bottom]) => y >= top && y < bottom)) {
+        continue;
+      }
+      const dy = y + 0.5 - radius;
+      const half = Math.sqrt(Math.max(0, radius * radius - dy * dy));
+      if (half <= 0) {
+        continue;
+      }
+      const mixed = Phaser.Display.Color.Interpolate.ColorWithColor(from, to, SUN_SIZE - 1, y);
+      g.fillStyle(Phaser.Display.Color.GetColor(mixed.r, mixed.g, mixed.b), 1);
+      g.fillRect(radius - half, y, half * 2, 1);
+    }
+  });
+}
+
+/**
+ * A ridge line, drawn white so the two copies of it that stand between the
+ * road and the sun can be tinted to their own distances. Built from three
+ * sine waves at different rates: one hump would read as a single hill, and
+ * three beating against each other read as a range.
+ */
+export function ensureHillsTexture(scene: Phaser.Scene): string {
+  const width = 512;
+  const height = 96;
+
+  return define(scene, TEX.hills, width, height, (g) => {
+    g.fillStyle(0xffffff, 1);
+    for (let x = 0; x < width; x += 1) {
+      // A whole number of cycles across the texture, so two copies of it side
+      // by side still meet at the same height.
+      const t = (x / width) * Math.PI * 2;
+      const ridge =
+        height * 0.52 + Math.sin(t) * 17 + Math.sin(t * 3 + 1.1) * 9 + Math.sin(t * 6 + 0.4) * 4;
+      g.fillRect(x, height - ridge, 1, ridge);
+    }
+  });
+}
+
+/**
+ * Cloud bars for the upper sky, white to be tinted warm where they are used.
+ * Anything crossing an edge is drawn again a texture-width away so the strip
+ * still tiles once it is scrolling.
+ */
+export function ensureCloudTexture(scene: Phaser.Scene): string {
+  const width = 256;
+  const height = 128;
+
+  return define(scene, TEX.clouds, width, height, (g) => {
+    const bars = [
+      { x: 40, y: 26, w: 78, h: 9 },
+      { x: 150, y: 52, w: 96, h: 11 },
+      { x: 18, y: 86, w: 62, h: 8 },
+      { x: 210, y: 104, w: 84, h: 10 },
+      { x: 112, y: 12, w: 52, h: 7 },
+    ];
+
+    for (const bar of bars) {
+      for (const offset of [0, -width, width]) {
+        // Three nested ellipses: a flat-bottomed smear, softest at the edges.
+        for (let layer = 0; layer < 3; layer += 1) {
+          const shrink = layer * 0.22;
+          g.fillStyle(0xffffff, 0.3);
+          g.fillEllipse(bar.x + offset, bar.y, bar.w * (1 - shrink), bar.h * (1 - shrink * 0.4));
+        }
+      }
+    }
+  });
+}
+
+/**
+ * A palm, seen side-on with its base at the bottom edge of the texture, which
+ * is where the scene plants it on the ground. Fronds in two greens so the
+ * crown has a front and a back at 30 px, which is the size most of them spend
+ * their life at.
+ */
+export function ensurePalmTexture(scene: Phaser.Scene): string {
+  return define(scene, TEX.palm, PALM_WIDTH, PALM_HEIGHT, (g) => {
+    const baseX = PALM_WIDTH * 0.46;
+    const crownY = PALM_HEIGHT * 0.36;
+
+    // Trunk: leans a little, narrows as it climbs. Drawn as a stack of short
+    // bars so the lean stays smooth without a polygon per segment.
+    const steps = 44;
+    let topX = baseX;
+    for (let i = 0; i <= steps; i += 1) {
+      const t = i / steps;
+      const x = baseX + Math.sin(t * 1.15) * 11;
+      const y = PALM_HEIGHT - t * (PALM_HEIGHT - crownY);
+      const halfWidth = 5.2 - t * 2.4;
+      g.fillStyle(i % 6 < 3 ? PALETTE.palmTrunk : shade(PALETTE.palmTrunk, -0.22), 1);
+      g.fillRect(x - halfWidth, y - 4, halfWidth * 2, 5);
+      topX = x;
+    }
+
+    // Coconuts, tucked under the crown.
+    g.fillStyle(shade(PALETTE.palmTrunk, -0.4), 1);
+    g.fillCircle(topX - 4, crownY + 4, 3.2);
+    g.fillCircle(topX + 3, crownY + 6, 2.8);
+
+    // Nine fronds, each a drooping arc of thinning discs. The crown has to
+    // carry the whole silhouette — a palm is recognised by its head, and at
+    // the size most of these are seen at the trunk is barely two pixels wide.
+    const fronds = 9;
+    for (let i = 0; i < fronds; i += 1) {
+      const spread = -3.05 + (i / (fronds - 1)) * 2.9;
+      const length = 30 + (i % 2 === 0 ? 8 : 0);
+      const color = i % 2 === 0 ? PALETTE.palmFrond : shade(PALETTE.palmFrond, -0.3);
+      g.fillStyle(color, 1);
+      for (let s = 0; s <= 14; s += 1) {
+        const t = s / 14;
+        const reach = t * length;
+        // The droop grows with the square of the reach, so the frond leaves
+        // the trunk straight and falls away at its tip.
+        const x = topX + Math.cos(spread) * reach;
+        const y = crownY + Math.sin(spread) * reach + t * t * 20;
+        g.fillCircle(x, y, 5 * (1 - t * 0.72));
+      }
+    }
   });
 }
 

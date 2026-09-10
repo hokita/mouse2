@@ -22,7 +22,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     title: 'Car Racer',
-    tagline: 'Weave through night traffic',
+    tagline: 'Weave through the sunset traffic',
     sceneKey: 'CarScene',
     accent: PALETTE.amber,
     icon: 'car',
