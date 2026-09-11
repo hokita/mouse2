@@ -269,15 +269,13 @@ export function ensureBossTexture(scene: Phaser.Scene): string {
 // --- Car Racer ------------------------------------------------------------
 
 /**
- * A car's footprint on the road: its width in lateral units (which are screen
- * pixels at the player's row) and its length in the metres the distance
- * readout counts. These are the collision box, unchanged from the flat road
- * the game started on, and they are deliberately not the size of the picture
- * below — a car seen from behind is a billboard standing on a footprint, not
- * the footprint itself.
+ * How wide a car is, in lateral units — which are screen pixels at the
+ * player's row, so this is both the width it is drawn at and the width it is
+ * hit at. How *long* it is belongs to the scene rather than here: length is
+ * measured in road, and only the camera knows how much road a drawn car
+ * stands on.
  */
 export const CAR_WIDTH = 44;
-export const CAR_LENGTH = 76;
 
 /** How tall a car stands at the player's row. */
 export const CAR_ART_HEIGHT = 50;

@@ -50,6 +50,24 @@ export function screenXAt(camera: Camera, z: number, offsetX: number): number {
 }
 
 /**
+ * How far down the road the ground has to be for it to sit `pixels` higher up
+ * the screen than the ground at the player's row.
+ *
+ * The bridge between a thing's picture and its footprint, and the exact
+ * inverse of `screenYAt` rather than the straight-line guess at it: something
+ * drawn 50 px tall at 1:1 covers this much road, so this is the length at
+ * which it should be hit. Size a footprint any other way and the collision
+ * disagrees with the only thing the player can actually see — a crash with
+ * clear road still showing between the two cars.
+ *
+ * Infinite at the horizon and beyond, where no amount of road is enough.
+ */
+export function depthOfPixels(camera: Camera, pixels: number): number {
+  const drop = camera.baseY - camera.horizonY;
+  return pixels >= drop ? Infinity : (camera.depth * pixels) / (drop - pixels);
+}
+
+/**
  * Screen y of ground at depth `z` that stands `rise` above the ground under
  * the camera.
  *
