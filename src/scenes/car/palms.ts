@@ -101,14 +101,25 @@ export function createPalmAvenue(scene: Phaser.Scene, road: Road): PalmAvenue {
       }
       palms = [];
       sinceLast = 0;
-      nextSide = -1;
 
       // A run starts mid-avenue rather than with an empty verge that fills in
       // over the first few seconds.
-      for (let z = 0; z < PLANT_DEPTH; z += SPACING) {
-        plant(z, nextSide);
-        nextSide = -nextSide;
+      //
+      // Seeded from the far end inward rather than from the car outward, so
+      // that the avenue is in step with the cadence `advance` plants at. The
+      // spacing does not divide the planting distance, so seeding outward
+      // leaves the last palm short of it — and the first one planted after
+      // the run starts then lands a spacing and a bit further on, putting one
+      // stretched gap in an otherwise even avenue.
+      const farthest = -1;
+      let side = farthest;
+      for (let z = PLANT_DEPTH; z > 0; z -= SPACING) {
+        plant(z, side);
+        side = -side;
       }
+      // The next palm arrives behind the farthest one seeded, so it takes the
+      // verge that one did not.
+      nextSide = -farthest;
     },
   };
 }
