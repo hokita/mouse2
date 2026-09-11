@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scaleAt, screenXAt, screenYAt } from '../perspective';
+import { depthOfPixels, scaleAt, screenXAt, screenYAt } from '../perspective';
 import type { Camera } from '../perspective';
 
 // An eye 260 m behind the player's row and 300 units above the road, with 600
@@ -91,5 +91,34 @@ describe('screenYAt', () => {
 
   it('carries ground above eye height over the horizon', () => {
     expect(screenYAt(EYE, 600, EYE.height * 1.4)).toBeLessThan(200);
+  });
+});
+
+describe('depthOfPixels', () => {
+  it('gives back no road for no pixels', () => {
+    expect(depthOfPixels(EYE, 0)).toBe(0);
+  });
+
+  it('is the road a height on screen stands on at the player row', () => {
+    // Walk that far down the road and the ground has climbed the screen by
+    // exactly the pixels asked about, which is what makes it the right length
+    // to hit a thing of that height at.
+    for (const pixels of [10, 50, 120, 400]) {
+      expect(EYE.baseY - screenYAt(EYE, depthOfPixels(EYE, pixels))).toBeCloseTo(pixels);
+    }
+  });
+
+  it('costs more road per pixel the higher up the screen it is asked about', () => {
+    expect(depthOfPixels(EYE, 100)).toBeGreaterThan(depthOfPixels(EYE, 50) * 2);
+  });
+
+  it('gives up at the horizon, which no length of road reaches', () => {
+    expect(depthOfPixels(EYE, 600)).toBe(Infinity);
+    expect(depthOfPixels(EYE, 900)).toBe(Infinity);
+  });
+
+  it('gives a nearer eye less road per pixel', () => {
+    const near: Camera = { ...EYE, depth: 130 };
+    expect(depthOfPixels(near, 50)).toBeLessThan(depthOfPixels(EYE, 50));
   });
 });

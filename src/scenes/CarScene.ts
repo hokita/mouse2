@@ -5,6 +5,7 @@ import type { Rect } from '../core/collision';
 import { createDistance, getDistanceValue, tickDistance } from '../core/distance';
 import type { DistanceState } from '../core/distance';
 import { laneCenterX, pickSpawnLane } from '../core/lanes';
+import { depthOfPixels } from '../core/perspective';
 import { createSpawner, tickSpawner } from '../core/spawner';
 import type { SpawnerState } from '../core/spawner';
 import { sweepX, sweepY } from '../core/sweep';
@@ -13,7 +14,6 @@ import { PALETTE } from '../ui/theme';
 import {
   BOOST_SIZE,
   CAR_ART_HEIGHT,
-  CAR_LENGTH,
   CAR_WIDTH,
   TEX,
   ensureBoostTexture,
@@ -52,23 +52,39 @@ const MIN_SPAWN_INTERVAL_MS = 550;
 const MAX_SPAWN_INTERVAL_MS = 1100;
 
 /**
- * How far up the road traffic first appears, in metres.
+ * How much road a thing covers along the road, taken from how tall it is
+ * drawn at the player's row.
  *
- * Not a picture-making number but the game's oldest tuning one: the flat road
- * this grew out of dropped a car a length above the top of the screen and
- * scrolled a pixel a metre, which handed the player exactly this much warning
- * before a bumper. Everything about how the road is drawn has changed twice
- * since; how long you get to read it has not.
+ * This is the number a crash turns on, and taking it from the picture is the
+ * whole point. A car is a card standing on the road: the gap the player is
+ * judging is the gap between two cards, so the road a card covers has to be
+ * the road it is hit on. Carrying the flat game's 76 m over into a projected
+ * road made a car three times longer than it looks, and the crash fired with
+ * most of a car's worth of clear tarmac still showing between the bumpers.
  */
-const SPAWN_DEPTH = 838;
+const CAR_LENGTH = depthOfPixels(CAMERA, CAR_ART_HEIGHT);
+const BOOST_LENGTH = depthOfPixels(CAMERA, BOOST_SIZE);
+
+/**
+ * How much road the player gets to read a lane before anything in it can
+ * reach them.
+ *
+ * The game's oldest tuning number, from the flat road that scrolled a pixel a
+ * metre. Traffic is spawned a contact's worth beyond it, so shortening what a
+ * car covers lengthens where it starts and the reaction window comes out the
+ * same to the metre.
+ */
+const WARNING_METRES = 762;
+const SPAWN_DEPTH = WARNING_METRES + CAR_LENGTH;
 
 /**
  * A lane counts as blocked (and so is off-limits for a new arrival) while it
- * still holds something within this many metres of the spawn line — four car
- * lengths, so two cars in a lane never arrive nose-to-tail. It is also what
- * sets how often a spawn is refused, and so how thick the traffic gets.
+ * still holds something within this many metres of the spawn line. Comfortably
+ * more than a car, so two of them never arrive nose-to-tail, and unchanged
+ * from the flat road because it is really a tuning number: it sets how often a
+ * spawn is refused, and so how thick the traffic gets.
  */
-const LANE_BLOCKED_ZONE = CAR_LENGTH * 4;
+const LANE_BLOCKED_ZONE = 304;
 
 // Speed is a function of pickups collected, not of time survived, and it has
 // no ceiling: every disc is another 10 km/h on the pill, for as long as you
@@ -562,7 +578,7 @@ export class CarScene extends Phaser.Scene {
       lane,
       z: SPAWN_DEPTH,
       width: BOOST_SIZE,
-      length: BOOST_SIZE,
+      length: BOOST_LENGTH,
     };
     this.place(boost);
     this.boosts.push(boost);
