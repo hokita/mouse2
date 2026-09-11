@@ -77,13 +77,6 @@ export function createPalmAvenue(scene: Phaser.Scene, road: Road): PalmAvenue {
 
   return {
     advance(metres: number): void {
-      sinceLast += metres;
-      while (sinceLast >= SPACING) {
-        sinceLast -= SPACING;
-        plant(PLANT_DEPTH, nextSide);
-        nextSide = -nextSide;
-      }
-
       palms = palms.filter((palm) => {
         palm.z -= metres;
         if (palm.z < PASSED_DEPTH) {
@@ -93,6 +86,19 @@ export function createPalmAvenue(scene: Phaser.Scene, road: Road): PalmAvenue {
         place(palm);
         return true;
       });
+
+      // Planted after the avenue has moved, and back-dated: the cadence came
+      // due partway through the frame, so the palm goes where it was due
+      // rather than at the planting distance exactly. Without that, spacing
+      // is off by whatever the frame covered — a couple of metres at the
+      // start of a run, and at the speeds a long run reaches, enough to stack
+      // two palms on the same spot when one frame covers more than a spacing.
+      sinceLast += metres;
+      while (sinceLast >= SPACING) {
+        sinceLast -= SPACING;
+        plant(PLANT_DEPTH - sinceLast, nextSide);
+        nextSide = -nextSide;
+      }
     },
 
     reset(): void {

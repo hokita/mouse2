@@ -96,6 +96,19 @@ const MILESTONE_METRES = 500;
 const PASSED_DEPTH = -100;
 
 /**
+ * How far a new arrival takes to fade up, in metres.
+ *
+ * The spawn line is far enough out to be hazy but not far enough to be
+ * invisible — the camera puts it a third of the way down the screen at a
+ * quarter size — so a car simply switched on there is a ten-pixel thing
+ * appearing out of nowhere in the middle of the road. Fading it up over its
+ * first stretch puts it back where it belongs, arriving out of the light
+ * rather than in front of it. It costs no warning: the car is on screen the
+ * whole time, and the fade is over inside the first fifth of its journey.
+ */
+const ARRIVAL_FADE_METRES = 150;
+
+/**
  * How hard a bend throws the car toward the outside of it, in pixels per
  * second at full tilt.
  *
@@ -410,10 +423,11 @@ export class CarScene extends Phaser.Scene {
    */
   private place(thing: RoadThing): void {
     const at = this.road.place(thing.z, laneCenterX(thing.lane, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH) - CAMERA.centerX);
+    const arriving = Phaser.Math.Clamp((SPAWN_DEPTH - thing.z) / ARRIVAL_FADE_METRES, 0, 1);
     thing.art
       .setPosition(at.x, at.y)
       .setScale(at.scale)
-      .setAlpha(1 - at.fog)
+      .setAlpha((1 - at.fog) * arriving)
       .setDepth(DEPTH.world + Math.min(at.scale, 6))
       // Out of sight over a crest. It is still coming — the run does not care
       // what the player can see — but drawing it would put a distant car on
