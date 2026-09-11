@@ -5,7 +5,7 @@ import { GAMES } from '../games';
 import type { GameEntry, GameIcon } from '../games';
 import { PALETTE, RADIUS, bodyStyle, displayStyle, labelStyle } from '../ui/theme';
 import {
-  CAR_HEIGHT,
+  CAR_ART_HEIGHT,
   CAR_WIDTH,
   SHIP_SIZE,
   TEX,
@@ -243,9 +243,12 @@ export class MenuScene extends Phaser.Scene {
         .image(0, 0, ensureBobberTexture(this))
         .setDisplaySize(BOBBER_WIDTH * scale, BOBBER_HEIGHT * scale);
     }
-    const scale = 0.72;
+    // The car badge gets more enlargement than the ship or the fish: it is
+    // drawn as the game draws it, from behind, and a rear view is a squatter
+    // shape than the top-down car that used to sit here.
+    const scale = 1.15;
     return this.add
       .image(0, 0, ensureCarTexture(this, PLAYER_CAR_COLOR, { stripe: true }))
-      .setDisplaySize(CAR_WIDTH * scale, CAR_HEIGHT * scale);
+      .setDisplaySize(CAR_WIDTH * scale, CAR_ART_HEIGHT * scale);
   }
 }

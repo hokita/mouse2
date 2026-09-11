@@ -1,67 +1,74 @@
 import Phaser from 'phaser';
-import { projectX, scaleAt } from '../../core/perspective';
-import { HEIGHT } from '../../gameConfig';
-import { PALM_HEIGHT, ensurePalmTexture } from '../../ui/textures';
+import { ensurePalmTexture } from '../../ui/textures';
 import { DEPTH } from '../../ui/widgets';
-import { HORIZON_Y, PERSPECTIVE, ROAD_WIDTH } from './road';
+import { ROAD_WIDTH } from './road';
+import type { Road } from './road';
 
 // Palms down both verges. They are the one piece of scenery that is neither
-// road nor sky, and they are worth their frame time for a reason the road
-// cannot manage on its own: the road's markings tell the player how fast the
-// ground is moving, and the palms tell them how far away it is. Something that
-// grows from a twig at the horizon to taller than the car as it goes by is
-// what sells the third dimension.
+// road nor sky, and they earn their frame time for something the road cannot
+// do on its own: the markings tell the player how fast the ground is moving,
+// and the palms tell them how far away it is. Something that grows from a twig
+// on the horizon to taller than the car as it goes by is what sells the third
+// dimension — and on a bend they are what the road is bending past.
 
-/** How far apart consecutive palms are, in pixels of road travel. */
-const SPACING_PX = 168;
+/** How far apart consecutive palms stand, in metres. */
+const SPACING = 130;
 
-/** Clear of the shoulder, so a palm never looks like it is on the tarmac. */
-const VERGE_OFFSET = ROAD_WIDTH / 2 + 38;
+/** Out beyond the shoulder, so a palm never looks like it is on the tarmac. */
+const VERGE_OFFSET = ROAD_WIDTH / 2 + 40;
 
 /** Height at the player's row. Taller than the car, as a palm should be. */
-const PALM_SCALE = 1.25;
+const PALM_SCALE = 1.3;
+
+/** Planted this far out, so they arrive out of the haze rather than appear. */
+const PLANT_DEPTH = 2000;
+
+/** Felled once they are behind the camera and off the bottom of the screen. */
+const PASSED_DEPTH = -120;
 
 interface Palm {
   image: Phaser.GameObjects.Image;
+  /** Metres of road ahead of the player. */
+  z: number;
   /** -1 for the left verge, +1 for the right. */
   side: number;
 }
 
 export interface PalmAvenue {
-  /** Brings every palm `px` closer, planting and felling as needed. */
-  scroll(px: number): void;
+  /** Brings every palm `metres` closer, planting and felling as needed. */
+  advance(metres: number): void;
   /** Clears the avenue and plants a fresh one down the whole road. */
   reset(): void;
 }
 
-export function createPalmAvenue(scene: Phaser.Scene): PalmAvenue {
+export function createPalmAvenue(scene: Phaser.Scene, road: Road): PalmAvenue {
   const texture = ensurePalmTexture(scene);
   let palms: Palm[] = [];
-  /** Distance since the last one was planted. */
+  /** Metres since the last one was planted. */
   let sinceLast = 0;
   /** Which verge the next palm goes on. They alternate. */
   let nextSide = -1;
 
-  /** Stands a palm on the ground at row `y`: scaled, projected, planted. */
+  /** Stands a palm on the ground: scaled, leant into the bend, hazed. */
   const place = (palm: Palm): void => {
-    const y = palm.image.y;
-    const scale = scaleAt(PERSPECTIVE, y);
-    palm.image.setX(projectX(PERSPECTIVE, PERSPECTIVE.centerX + palm.side * VERGE_OFFSET, y));
-    palm.image.setScale(scale * PALM_SCALE);
-    // Into the haze along with everything else at the horizon.
-    palm.image.setAlpha(Phaser.Math.Clamp((y - HORIZON_Y) / 70, 0, 1));
+    const at = road.place(palm.z, palm.side * VERGE_OFFSET);
+    palm.image
+      .setPosition(at.x, at.y)
+      .setScale(at.scale * PALM_SCALE)
+      .setAlpha(1 - at.fog)
+      // Hidden along with the road it is planted on, when that is over a brow.
+      .setVisible(at.visible)
+      // Above the road but below the traffic, and nearer palms over farther
+      // ones. The whole avenue still sits in the gap under DEPTH.world.
+      .setDepth(DEPTH.backdrop + 2 + Math.min(at.scale, 5));
   };
 
-  const plant = (y: number, side: number): void => {
+  const plant = (z: number, side: number): void => {
     const palm: Palm = {
       // Origin at the foot of the trunk: that is the point standing on the
       // ground, and so the point the perspective is about.
-      image: scene.add
-        .image(0, y, texture)
-        .setOrigin(0.5, 1)
-        // Below the traffic but above the road, so a palm that leans over the
-        // verge still passes behind the cars.
-        .setDepth(DEPTH.backdrop + 2),
+      image: scene.add.image(0, 0, texture).setOrigin(0.5, 1),
+      z,
       side,
     };
     place(palm);
@@ -69,20 +76,17 @@ export function createPalmAvenue(scene: Phaser.Scene): PalmAvenue {
   };
 
   return {
-    scroll(px: number): void {
-      sinceLast += px;
-      while (sinceLast >= SPACING_PX) {
-        sinceLast -= SPACING_PX;
-        // Planted at the horizon itself, where a palm is a couple of pixels
-        // tall, rather than at the top of the screen — there is no road up
-        // there any more.
-        plant(HORIZON_Y, nextSide);
+    advance(metres: number): void {
+      sinceLast += metres;
+      while (sinceLast >= SPACING) {
+        sinceLast -= SPACING;
+        plant(PLANT_DEPTH, nextSide);
         nextSide = -nextSide;
       }
 
       palms = palms.filter((palm) => {
-        palm.image.y += px;
-        if (palm.image.y > HEIGHT + PALM_HEIGHT * PALM_SCALE) {
+        palm.z -= metres;
+        if (palm.z < PASSED_DEPTH) {
           palm.image.destroy();
           return false;
         }
@@ -101,8 +105,8 @@ export function createPalmAvenue(scene: Phaser.Scene): PalmAvenue {
 
       // A run starts mid-avenue rather than with an empty verge that fills in
       // over the first few seconds.
-      for (let y = HORIZON_Y; y < HEIGHT; y += SPACING_PX) {
-        plant(y, nextSide);
+      for (let z = 0; z < PLANT_DEPTH; z += SPACING) {
+        plant(z, nextSide);
         nextSide = -nextSide;
       }
     },

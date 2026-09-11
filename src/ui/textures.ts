@@ -19,7 +19,6 @@ export const TEX = {
   starsNear: 'fx-stars-near',
   starsFar: 'fx-stars-far',
   topFade: 'fx-top-fade',
-  haze: 'fx-haze',
   ship: 'dodger-ship',
   boss: 'dodger-boss',
   sky: 'car-sky',
@@ -100,15 +99,6 @@ export function ensureFxTextures(scene: Phaser.Scene): void {
   define(scene, TEX.topFade, 4, 256, (g) => {
     for (let i = 0; i < 256; i += 1) {
       g.fillStyle(0x000000, Math.pow(1 - i / 255, 3));
-      g.fillRect(0, i, 4, 1);
-    }
-  });
-
-  // The same ramp in white, to be tinted where it is used: laid over the far
-  // end of Car Racer's road it is the haze the horizon fades into.
-  define(scene, TEX.haze, 4, 256, (g) => {
-    for (let i = 0; i < 256; i += 1) {
-      g.fillStyle(0xffffff, Math.pow(1 - i / 255, 2.2));
       g.fillRect(0, i, 4, 1);
     }
   });
@@ -278,67 +268,114 @@ export function ensureBossTexture(scene: Phaser.Scene): string {
 
 // --- Car Racer ------------------------------------------------------------
 
+/**
+ * A car's footprint on the road: its width in lateral units (which are screen
+ * pixels at the player's row) and its length in the metres the distance
+ * readout counts. These are the collision box, unchanged from the flat road
+ * the game started on, and they are deliberately not the size of the picture
+ * below — a car seen from behind is a billboard standing on a footprint, not
+ * the footprint itself.
+ */
 export const CAR_WIDTH = 44;
-export const CAR_HEIGHT = 76;
+export const CAR_LENGTH = 76;
+
+/** How tall a car stands at the player's row. */
+export const CAR_ART_HEIGHT = 50;
+
+// Drawn at twice the size it is ever shown at. Every car on the road is the
+// same texture scaled down by its distance, and starting from twice the size
+// is what keeps the one at the player's bumper from looking chewed.
+const CAR_ART_DETAIL = 2;
 
 /**
- * Top-down car, nose pointing up the screen: windscreen and headlights at the
- * top, rear window and tail lights at the bottom. Drawn at exactly the
- * collision box's size for the same reason the ship is.
+ * A car seen from behind and a little above, which is the only view a car in
+ * front of you has.
+ *
+ * The light is the thing to get right: the sun is on the horizon ahead, so
+ * every car on this road is backlit. The rear is in its own shadow — hence a
+ * body darker than the paint it is nominally wearing — and what says
+ * "three-dimensional" is the warm edge along the roof where the light gets
+ * round it, plus the cabin sitting in front of a boot that is darker again.
+ *
+ * At the horizon this is ten pixels across, so the silhouette carries it: a
+ * dark cabin over a coloured body, with two red lights.
  */
 export function ensureCarTexture(
   scene: Phaser.Scene,
   color: number,
   options: { stripe?: boolean } = {}
 ): string {
-  return define(scene, carTexture(color), CAR_WIDTH, CAR_HEIGHT, (g) => {
-    const w = CAR_WIDTH;
-    const h = CAR_HEIGHT;
-    const bodyRadius = w * 0.27;
+  const w = CAR_WIDTH * CAR_ART_DETAIL;
+  const h = CAR_ART_HEIGHT * CAR_ART_DETAIL;
 
-    // Mirrors first, so the body outline overlaps their inner edge.
-    g.fillStyle(shade(color, -0.3), 1);
-    g.fillRoundedRect(0, h * 0.3, w * 0.12, h * 0.08, 2);
-    g.fillRoundedRect(w * 0.88, h * 0.3, w * 0.12, h * 0.08, 2);
+  return define(scene, carTexture(color), w, h, (g) => {
+    const body = shade(color, -0.16);
+    const lower = shade(color, -0.4);
+    const cabin = shade(color, -0.52);
 
-    g.fillStyle(color, 1);
-    g.fillRoundedRect(2, 2, w - 4, h - 4, bodyRadius);
+    // Tyres, first so the body sits over their inner edge.
+    g.fillStyle(0x15121d, 1);
+    g.fillRoundedRect(1, h * 0.68, w * 0.19, h * 0.3, 5);
+    g.fillRoundedRect(w * 0.81 - 1, h * 0.68, w * 0.19, h * 0.3, 5);
 
-    // Rear half sits in shadow; a gloss strip runs down the left flank.
-    g.fillStyle(shade(color, -0.28), 0.55);
-    g.fillRoundedRect(2, h * 0.55, w - 4, h * 0.45 - 2, {
-      tl: 0,
-      tr: 0,
-      bl: bodyRadius,
-      br: bodyRadius,
-    });
-    g.fillStyle(0xffffff, 0.13);
-    g.fillRoundedRect(w * 0.13, h * 0.09, w * 0.16, h * 0.8, w * 0.08);
+    // Cabin and rear window. The window is the darkest thing on the car,
+    // which is what stops a distant one from reading as a coloured brick.
+    fillPolygon(g, [
+      [w * 0.29, h * 0.06],
+      [w * 0.71, h * 0.06],
+      [w * 0.82, h * 0.43],
+      [w * 0.18, h * 0.43],
+    ], cabin);
+    fillPolygon(g, [
+      [w * 0.34, h * 0.12],
+      [w * 0.66, h * 0.12],
+      [w * 0.75, h * 0.39],
+      [w * 0.25, h * 0.39],
+    ], 0x111629);
+    // A little sky caught in the glass, along its top edge.
+    fillPolygon(g, [
+      [w * 0.35, h * 0.13],
+      [w * 0.65, h * 0.13],
+      [w * 0.68, h * 0.22],
+      [w * 0.32, h * 0.22],
+    ], 0x2c3a63, 0.85);
+
+    // The sun is ahead of the car, so the light that reaches us is the sliver
+    // getting round the roof.
+    g.fillStyle(PALETTE.sunCore, 0.7);
+    g.fillRoundedRect(w * 0.3, h * 0.045, w * 0.4, h * 0.03, 2);
+
+    // Boot and rear quarters, then the bumper below them.
+    g.fillStyle(body, 1);
+    g.fillRoundedRect(w * 0.06, h * 0.4, w * 0.88, h * 0.44, w * 0.1);
+    g.fillStyle(lower, 1);
+    g.fillRoundedRect(w * 0.06, h * 0.72, w * 0.88, h * 0.2, w * 0.07);
+
+    // Shoulder line: the one horizontal that says where the boot lid ends.
+    g.fillStyle(shade(color, -0.62), 0.55);
+    g.fillRect(w * 0.09, h * 0.55, w * 0.82, h * 0.02);
 
     if (options.stripe) {
-      g.fillStyle(0xffffff, 0.32);
-      g.fillRect(w * 0.44, 4, w * 0.05, h - 8);
-      g.fillRect(w * 0.53, 4, w * 0.05, h - 8);
+      g.fillStyle(0xffffff, 0.34);
+      g.fillRect(w * 0.44, h * 0.05, w * 0.05, h * 0.82);
+      g.fillRect(w * 0.51, h * 0.05, w * 0.05, h * 0.82);
     }
 
-    // Cabin.
-    g.fillStyle(0x0e1120, 0.9);
-    g.fillRoundedRect(w * 0.14, h * 0.24, w * 0.72, h * 0.47, w * 0.16);
-    g.fillStyle(0x9fdcff, 0.88);
-    g.fillRoundedRect(w * 0.19, h * 0.27, w * 0.62, h * 0.15, w * 0.1);
-    g.fillStyle(0x6ea9d8, 0.8);
-    g.fillRoundedRect(w * 0.21, h * 0.58, w * 0.58, h * 0.1, w * 0.08);
+    // Tail lights, with a hot core so they still read at ten pixels wide.
+    for (const x of [w * 0.1, w * 0.66]) {
+      g.fillStyle(0x5d1522, 1);
+      g.fillRoundedRect(x, h * 0.58, w * 0.24, h * 0.12, 3);
+      g.fillStyle(0xff4a4a, 1);
+      g.fillRoundedRect(x + 2, h * 0.6, w * 0.24 - 4, h * 0.08, 2);
+      g.fillStyle(0xffd6d6, 0.85);
+      g.fillRoundedRect(x + 4, h * 0.615, w * 0.24 - 8, h * 0.03, 1);
+    }
 
-    // Lights.
-    g.fillStyle(0xfff4cc, 1);
-    g.fillRoundedRect(w * 0.1, h * 0.035, w * 0.24, h * 0.055, 3);
-    g.fillRoundedRect(w * 0.66, h * 0.035, w * 0.24, h * 0.055, 3);
-    g.fillStyle(0xff5b5b, 1);
-    g.fillRoundedRect(w * 0.1, h * 0.9, w * 0.24, h * 0.055, 3);
-    g.fillRoundedRect(w * 0.66, h * 0.9, w * 0.24, h * 0.055, 3);
+    g.fillStyle(0xe9edff, 0.9);
+    g.fillRoundedRect(w * 0.4, h * 0.72, w * 0.2, h * 0.1, 2);
 
-    g.lineStyle(2, shade(color, -0.5), 0.9);
-    g.strokeRoundedRect(2, 2, w - 4, h - 4, bodyRadius);
+    g.lineStyle(2, shade(color, -0.68), 0.8);
+    g.strokeRoundedRect(w * 0.06, h * 0.4, w * 0.88, h * 0.44, w * 0.1);
   });
 }
 

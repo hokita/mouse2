@@ -1,59 +1,63 @@
 /**
- * The flat-ground projection the Car Racer road is drawn with.
+ * The camera Car Racer's road is drawn through.
  *
- * One fact does all the work here: on a flat plane viewed by a camera looking
- * along it, how big a thing appears is proportional to how far below the
- * horizon it touches the ground. So a single ratio — this row's drop below the
- * horizon over the player's row's drop — is at once the scale to draw at, the
- * factor that pulls the road's edges in toward the vanishing point, and (via
- * its reciprocal) how far down the track the row sits.
+ * A pinhole eye sitting `depth` behind the player and `height` above the road,
+ * looking level along it. Everything the game draws — the road's own strips,
+ * the traffic standing on them, the palms down the verges — is placed by these
+ * three functions, so the world can bend and rise underneath the player
+ * without anything having to be told about it twice.
  *
- * It lives in core rather than with the scene's art because the same numbers
- * size the collision boxes: a car drawn at two-thirds scale is hit at
- * two-thirds scale, and a projection that could disagree with the picture is
- * one the player would feel as an unfair crash.
+ * The units are the ones the distance readout counts in: a depth of 1 is a
+ * metre of road. Lateral offsets are given at the player's own row, where the
+ * projection is 1:1 — which makes them screen pixels as well, and is what lets
+ * the lanes, the car's width and its collision box all stay in the numbers the
+ * game was tuned with.
+ *
+ * It lives in core rather than with the scene's art because it sizes the
+ * hitboxes as much as the picture: a projection that could disagree with what
+ * is drawn is one the player would feel as an unfair crash.
  */
 
-export interface Perspective {
-  /** Screen y of the vanishing point — where the road's edges meet. */
+export interface Camera {
+  /** Screen y a flat road runs away to. Eye level. */
   horizonY: number;
-  /** Screen y of the row drawn at 1:1. The player's own row. */
+  /** Screen y of the road at depth zero — the player's own row. */
   baseY: number;
-  /** Screen x the road converges to. */
+  /** Screen x a straight road converges to. */
   centerX: number;
+  /** How far behind depth zero the eye sits, in metres of road. */
+  depth: number;
+  /** How high the eye sits above the road, in the units `rise` is given in. */
+  height: number;
 }
 
 /**
- * Drawing scale for screen row `y`: 0 at the horizon, 1 at the player's row,
- * and above 1 for the rows below it — the road keeps widening past the player
- * rather than stopping at their bumper.
+ * How big something at depth `z` is drawn: 1 at the player's row, half that a
+ * camera-depth further on, and larger for the road that carries on past the
+ * player toward the bottom of the screen.
  *
- * Clamped at 0 so a caller that asks about a row above the horizon gets a
- * degenerate point instead of a mirrored, negative-width world.
+ * Zero behind the eye, where perspective has nothing to say — a point there
+ * would otherwise come back mirrored and enormous.
  */
-export function scaleAt(p: Perspective, y: number): number {
-  return Math.max(0, (y - p.horizonY) / (p.baseY - p.horizonY));
+export function scaleAt(camera: Camera, z: number): number {
+  const fromEye = z + camera.depth;
+  return fromEye <= 0 ? 0 : camera.depth / fromEye;
+}
+
+/** Screen x of something `offsetX` to the side of the road's centre line. */
+export function screenXAt(camera: Camera, z: number, offsetX: number): number {
+  return camera.centerX + offsetX * scaleAt(camera, z);
 }
 
 /**
- * Slides a ground-plane x — measured at the player's row, where the road is
- * its full width — onto screen row `y`.
- */
-export function projectX(p: Perspective, x: number, y: number): number {
-  return p.centerX + (x - p.centerX) * scaleAt(p, y);
-}
-
-/**
- * How far down the track row `y` sits, given that the player's own row sits
- * `cameraDepth` from the camera. The inverse of the scale relation, in the
- * same units `cameraDepth` is in.
+ * Screen y of ground at depth `z` that stands `rise` above the ground under
+ * the camera.
  *
- * This is what the road's markings are anchored to: spacing them evenly in
- * depth (rather than evenly down the screen) is what makes them bunch up
- * toward the horizon and rush apart as they arrive. Infinite at the horizon,
- * which is the honest answer — the horizon is infinitely far away.
+ * Level ground runs to the horizon; ground as high as the eye is level with it
+ * however far away it is, and anything higher climbs above it. That is the
+ * whole of what makes a hill read as a hill.
  */
-export function depthAt(p: Perspective, y: number, cameraDepth: number): number {
-  const scale = scaleAt(p, y);
-  return scale <= 0 ? Infinity : cameraDepth / scale - cameraDepth;
+export function screenYAt(camera: Camera, z: number, rise = 0): number {
+  const drop = camera.baseY - camera.horizonY;
+  return camera.horizonY + drop * scaleAt(camera, z) * (1 - rise / camera.height);
 }

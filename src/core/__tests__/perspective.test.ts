@@ -1,95 +1,95 @@
 import { describe, expect, it } from 'vitest';
-import { depthAt, projectX, scaleAt } from '../perspective';
-import type { Perspective } from '../perspective';
+import { scaleAt, screenXAt, screenYAt } from '../perspective';
+import type { Camera } from '../perspective';
 
-// A road 600 px tall on screen between its vanishing point and the player's
-// row, converging on x = 200.
-const ROAD: Perspective = { horizonY: 200, baseY: 800, centerX: 200 };
+// An eye 260 m behind the player's row and 300 units above the road, with 600
+// px of screen between the horizon and the row it is looking at.
+const EYE: Camera = { horizonY: 200, baseY: 800, centerX: 200, depth: 260, height: 300 };
 
 describe('scaleAt', () => {
-  it('vanishes to nothing at the horizon', () => {
-    expect(scaleAt(ROAD, 200)).toBe(0);
-  });
-
   it('is exactly 1:1 at the player row', () => {
-    expect(scaleAt(ROAD, 800)).toBe(1);
+    expect(scaleAt(EYE, 0)).toBe(1);
   });
 
-  it('is half size halfway down to the player', () => {
-    expect(scaleAt(ROAD, 500)).toBeCloseTo(0.5);
+  it('halves one camera-depth further down the road', () => {
+    expect(scaleAt(EYE, 260)).toBeCloseTo(0.5);
+    expect(scaleAt(EYE, 780)).toBeCloseTo(0.25);
   });
 
-  it('keeps growing below the player row', () => {
-    expect(scaleAt(ROAD, 932)).toBeGreaterThan(1);
+  it('grows for the road behind the player, which is nearer the eye', () => {
+    expect(scaleAt(EYE, -130)).toBeCloseTo(2);
   });
 
-  it('clamps above the horizon rather than going negative', () => {
-    expect(scaleAt(ROAD, 0)).toBe(0);
-    expect(scaleAt(ROAD, -500)).toBe(0);
+  it('gives up rather than mirroring the world behind the eye', () => {
+    expect(scaleAt(EYE, -260)).toBe(0);
+    expect(scaleAt(EYE, -400)).toBe(0);
   });
 
-  it('grows monotonically down the screen', () => {
-    let previous = -1;
-    for (let y = 200; y <= 932; y += 4) {
-      const scale = scaleAt(ROAD, y);
-      expect(scale).toBeGreaterThan(previous);
+  it('shrinks all the way down the road and never reaches nothing', () => {
+    let previous = Infinity;
+    for (let z = 0; z <= 6000; z += 20) {
+      const scale = scaleAt(EYE, z);
+      expect(scale).toBeLessThan(previous);
+      expect(scale).toBeGreaterThan(0);
       previous = scale;
     }
   });
 });
 
-describe('projectX', () => {
-  it('leaves the row it is measured at untouched', () => {
-    expect(projectX(ROAD, 30, 800)).toBe(30);
-    expect(projectX(ROAD, 370, 800)).toBe(370);
+describe('screenXAt', () => {
+  it('leaves the player row untouched', () => {
+    expect(screenXAt(EYE, 0, -185)).toBe(15);
+    expect(screenXAt(EYE, 0, 185)).toBe(385);
   });
 
-  it('collapses the whole road onto the vanishing point at the horizon', () => {
-    expect(projectX(ROAD, 30, 200)).toBe(200);
-    expect(projectX(ROAD, 370, 200)).toBe(200);
-  });
-
-  it('pulls both edges in by the same amount', () => {
-    const left = projectX(ROAD, 30, 500);
-    const right = projectX(ROAD, 370, 500);
+  it('pulls both edges of the road in by the same amount', () => {
+    const left = screenXAt(EYE, 260, -185);
+    const right = screenXAt(EYE, 260, 185);
     expect(200 - left).toBeCloseTo(right - 200);
   });
 
-  it('keeps a lane inside the road edge at every depth', () => {
-    for (let y = 210; y <= 932; y += 8) {
-      expect(projectX(ROAD, 80, y)).toBeGreaterThan(projectX(ROAD, 30, y));
-      expect(projectX(ROAD, 80, y)).toBeLessThan(projectX(ROAD, 370, y));
+  it('narrows the road toward the vanishing point without ever crossing it', () => {
+    let previous = 400;
+    for (let z = 0; z <= 6000; z += 20) {
+      const right = screenXAt(EYE, z, 185);
+      expect(right).toBeLessThan(previous);
+      expect(right).toBeGreaterThan(200);
+      previous = right;
     }
   });
 });
 
-describe('depthAt', () => {
-  it('puts the row depth is measured from at zero', () => {
-    expect(depthAt(ROAD, 800, 600)).toBeCloseTo(0);
+describe('screenYAt', () => {
+  it('puts level ground under the player at the player row', () => {
+    expect(screenYAt(EYE, 0)).toBe(800);
   });
 
-  it('is infinitely far away at the horizon', () => {
-    expect(depthAt(ROAD, 200, 600)).toBe(Infinity);
-    expect(depthAt(ROAD, 100, 600)).toBe(Infinity);
+  it('runs level ground away to the horizon without ever quite reaching it', () => {
+    expect(screenYAt(EYE, 100_000)).toBeGreaterThan(200);
+    expect(screenYAt(EYE, 100_000)).toBeLessThan(202);
   });
 
-  it('puts half-scale ground at one camera depth away', () => {
-    expect(depthAt(ROAD, 500, 600)).toBeCloseTo(600);
+  it('lifts ground that rises, and lifts near ground more than far', () => {
+    const nearFlat = screenYAt(EYE, 260, 0);
+    const nearHill = screenYAt(EYE, 260, 60);
+    const farFlat = screenYAt(EYE, 1300, 0);
+    const farHill = screenYAt(EYE, 1300, 60);
+    expect(nearHill).toBeLessThan(nearFlat);
+    expect(farHill).toBeLessThan(farFlat);
+    expect(nearFlat - nearHill).toBeGreaterThan(farFlat - farHill);
   });
 
-  it('falls monotonically as the ground approaches', () => {
-    let previous = Infinity;
-    for (let y = 260; y <= 932; y += 4) {
-      const depth = depthAt(ROAD, y, 600);
-      expect(depth).toBeLessThan(previous);
-      previous = depth;
+  it('drops ground that falls away below where level ground would be', () => {
+    expect(screenYAt(EYE, 260, -60)).toBeGreaterThan(screenYAt(EYE, 260, 0));
+  });
+
+  it('holds ground at eye height level with the horizon, however far off', () => {
+    for (const z of [200, 900, 4000]) {
+      expect(screenYAt(EYE, z, EYE.height)).toBeCloseTo(200);
     }
   });
 
-  it('round-trips back through the scale it came from', () => {
-    for (const y of [280, 400, 620, 799, 900]) {
-      const depth = depthAt(ROAD, y, 600);
-      expect(600 / (depth + 600)).toBeCloseTo(scaleAt(ROAD, y));
-    }
+  it('carries ground above eye height over the horizon', () => {
+    expect(screenYAt(EYE, 600, EYE.height * 1.4)).toBeLessThan(200);
   });
 });

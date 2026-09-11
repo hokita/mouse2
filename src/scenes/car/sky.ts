@@ -11,26 +11,44 @@ import {
   ensureSunTexture,
 } from '../../ui/textures';
 import { DEPTH } from '../../ui/widgets';
-import { HORIZON_Y, PERSPECTIVE } from './road';
+import { CAMERA, HORIZON_Y } from './road';
 
-// Everything above the road, and the one thing laid back over it: the haze the
-// far end of the road dissolves into.
+// Everything above the road.
 //
-// The sun is centred on the vanishing point rather than parked off to one side.
-// It costs nothing and it buys the whole picture: the road, the hills and the
-// light all agree on a single point straight ahead, and the player is driving
-// into it.
+// The sun is centred on the vanishing point rather than parked off to one
+// side. It costs nothing and it buys the whole picture: the road, the hills
+// and the light all agree on a single point straight ahead, and the player is
+// driving into it.
+//
+// On a bend the far end of the road swings sideways and the sky answers by
+// swinging the other way, because what is really turning is the car. That
+// counter-swing is most of what tells the player a corner is a corner rather
+// than a road that has been drawn crooked.
 
-/** How far down the road the sunset haze reaches. */
-const HAZE_PX = 210;
+/** How much of the road's swing each layer takes, nearest layer first. */
+const CLOUD_SWING = 0.62;
+const HILL_SWING = 0.4;
+const SUN_SWING = 0.26;
 
 export interface Sky {
-  /** Drifts the cloud bank along, given `px` of road travel. */
-  drift(px: number): void;
+  /**
+   * Leans the sky to answer a road that has swung `sway` pixels off straight,
+   * and drifts the cloud bank on by `metres` of travel.
+   */
+  update(sway: number, metres: number): void;
 }
 
 export function createSky(scene: Phaser.Scene): Sky {
   ensureFxTextures(scene);
+
+  // The ground the road is not covering. It sits over the sky's own layers
+  // and under the road, which makes it two things at once: what cuts the sun
+  // off at the horizon, and what fills the gap on a downhill, where the far
+  // end of the road falls away below eye level. Either way what shows is the
+  // haze the road fades into rather than bare canvas.
+  scene.add
+    .rectangle(WIDTH / 2, (HORIZON_Y + HEIGHT) / 2, WIDTH, HEIGHT - HORIZON_Y, PALETTE.sunsetLow)
+    .setDepth(DEPTH.backdrop + 0.5);
 
   scene.add
     .image(WIDTH / 2, HORIZON_Y / 2, ensureSkyTexture(scene))
@@ -39,8 +57,8 @@ export function createSky(scene: Phaser.Scene): Sky {
 
   // The glare around the sun, wider than it is tall so it washes along the
   // horizon instead of ballooning up into the indigo.
-  scene.add
-    .image(PERSPECTIVE.centerX, HORIZON_Y - 20, TEX.glow)
+  const glare = scene.add
+    .image(CAMERA.centerX, HORIZON_Y - 20, TEX.glow)
     .setDisplaySize(WIDTH * 1.7, SUN_SIZE * 1.4)
     .setTint(PALETTE.sunsetLow)
     .setAlpha(0.5)
@@ -48,10 +66,10 @@ export function createSky(scene: Phaser.Scene): Sky {
     .setDepth(DEPTH.backdrop);
 
   // Sunk to a little above its own midline, so what is left standing on the
-  // horizon is a wide dome. What cuts it off is the ground plane, drawn over
-  // it — the sun is behind the world, not in front of it.
-  scene.add
-    .image(PERSPECTIVE.centerX, HORIZON_Y - 24, ensureSunTexture(scene))
+  // horizon is a wide dome. What cuts it off is the ground, drawn over it —
+  // the sun is behind the world, not in front of it.
+  const sun = scene.add
+    .image(CAMERA.centerX, HORIZON_Y - 24, ensureSunTexture(scene))
     .setDepth(DEPTH.backdrop);
 
   const clouds = scene.add
@@ -62,33 +80,22 @@ export function createSky(scene: Phaser.Scene): Sky {
 
   // Two ridges, the far one paler and taller and the near one darker: a single
   // ridge reads as a cut-out, and two of them give the sun somewhere to be
-  // behind. Both stand on the horizon, where the ground takes over.
-  const hills = ensureHillsTexture(scene);
-  for (const ridge of [
-    { tint: PALETTE.hillFar, height: 74, width: WIDTH * 1.45, x: WIDTH * 0.3, alpha: 0.95 },
-    { tint: PALETTE.hillNear, height: 52, width: WIDTH * 1.15, x: WIDTH * 0.66, alpha: 1 },
-  ]) {
-    scene.add
-      .image(ridge.x, HORIZON_Y + 1, hills)
+  // behind. Both are drawn wider than the screen so that leaning them into a
+  // bend never walks an end into view.
+  const hillsTexture = ensureHillsTexture(scene);
+  const ridges = [
+    { tint: PALETTE.hillFar, height: 74, width: WIDTH * 2.2, x: WIDTH * 0.3, alpha: 0.95 },
+    { tint: PALETTE.hillNear, height: 52, width: WIDTH * 1.9, x: WIDTH * 0.66, alpha: 1 },
+  ].map((ridge) => {
+    const image = scene.add
+      .image(ridge.x, HORIZON_Y + 1, hillsTexture)
       .setOrigin(0.5, 1)
       .setDisplaySize(ridge.width, ridge.height)
       .setTint(ridge.tint)
       .setAlpha(ridge.alpha)
       .setDepth(DEPTH.backdrop);
-  }
-
-  // Haze over the top of the road, above the traffic rather than under it, so
-  // a car at the horizon arrives out of the light instead of appearing in
-  // front of it.
-  scene.add
-    .image(WIDTH / 2, HORIZON_Y, TEX.haze)
-    .setOrigin(0.5, 0)
-    .setDisplaySize(WIDTH, HAZE_PX)
-    .setTint(PALETTE.sunsetLow)
-    // Enough to swallow the far end of the road and the traffic arriving out
-    // of it, not so much that the verge under it turns olive.
-    .setAlpha(0.68)
-    .setDepth(DEPTH.effects);
+    return { image, home: ridge.x };
+  });
 
   // A last wash of warm light along the bottom of the screen, to keep the near
   // road from reading as a separate, greyer picture from the sky.
@@ -101,11 +108,23 @@ export function createSky(scene: Phaser.Scene): Sky {
     .setBlendMode(Phaser.BlendModes.ADD)
     .setDepth(DEPTH.effects);
 
+  /** Weather, which moves on its own account rather than with the car. */
+  let breeze = 0;
+
   return {
-    drift(px: number): void {
-      // A fraction of the road's speed: cloud that kept up with the verge
-      // would read as fog a few metres ahead rather than as weather.
-      clouds.tilePositionX += px * 0.04;
+    update(sway: number, metres: number): void {
+      // Every layer is placed from the road's current swing rather than nudged
+      // along by it, so a run of corners cannot walk the sun off the screen:
+      // straighten up and the sky comes back to where it belongs.
+      sun.x = CAMERA.centerX - sway * SUN_SWING;
+      glare.x = sun.x;
+      for (const ridge of ridges) {
+        ridge.image.x = ridge.home - sway * HILL_SWING;
+      }
+      // A tile sprite samples at +tilePosition, so adding moves the cloud
+      // bank left — the same way the hills and the sun go.
+      breeze += metres * 0.03;
+      clouds.tilePositionX = breeze + sway * CLOUD_SWING;
     },
   };
 }

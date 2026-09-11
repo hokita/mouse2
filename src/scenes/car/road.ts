@@ -1,30 +1,32 @@
 import Phaser from 'phaser';
-import { depthAt, scaleAt, projectX } from '../../core/perspective';
-import type { Perspective } from '../../core/perspective';
+import { scaleAt, screenXAt, screenYAt } from '../../core/perspective';
+import type { Camera } from '../../core/perspective';
+import { createTrack } from '../../core/track';
+import type { Track } from '../../core/track';
 import { HEIGHT, WIDTH } from '../../gameConfig';
 import { PALETTE } from '../../ui/theme';
 import { DEPTH } from '../../ui/widgets';
 
-// The road, drawn in perspective: a vanishing point on the horizon, edges that
-// converge on it, and markings spaced by how far down the track they are
-// rather than by how far down the screen. That last part is the whole trick —
-// evenly spaced depth is what makes the rumble strips crowd together at the
-// horizon and burst apart as they arrive, which is most of what a player reads
-// as speed.
+// The road, drawn the way the arcade cabinets drew it: as a stack of strips
+// laid from the car outward, each one projected on its own and each one a
+// little further up the screen than the last.
+//
+// Two things fall out of that for free, and they are the two things a flat
+// road can never have. Add up every bend between the camera and a strip and
+// the road leans off to the side — a corner. Read each strip's height against
+// the height of the ground under the camera and the road rises and falls —
+// a hill, complete with a brow that hides what is over it, because a strip
+// that lands lower on screen than the one in front of it is not drawn at all.
 //
 // The geometry lives here rather than in CarScene because the scene's traffic
-// is placed with it too: every car, pickup and palm is a thing standing on
-// this ground plane.
+// stands on it: a car, a pickup and a palm are all placed by `place`, so they
+// lean into the corners and ride over the crests without knowing either
+// exists.
 
-/** Where the road's edges meet, and the bottom of the sky. */
+/** Screen y a flat road runs away to. */
 export const HORIZON_Y = 190;
 
-/**
- * The player's row — the one rank of road drawn at 1:1, and so the row every
- * other measurement in this file is given at. Low enough that the car sits in
- * the near field where the perspective is generous, high enough that the road
- * still runs on past it to the bottom of the screen.
- */
+/** The player's row: the rank of road drawn at 1:1, and where the car sits. */
 export const PLAYER_Y = HEIGHT - 140;
 
 export const LANE_COUNT = 3;
@@ -34,160 +36,352 @@ const ROAD_MARGIN = 30;
 export const ROAD_LEFT = ROAD_MARGIN;
 export const ROAD_WIDTH = WIDTH - ROAD_MARGIN * 2;
 
-export const PERSPECTIVE: Perspective = {
+/**
+ * The eye. Its depth sets how hard the world foreshortens: near enough that
+ * traffic arrives out of the horizon as a dot, far enough that the last few
+ * metres before a bumper are not a blur.
+ */
+export const CAMERA: Camera = {
   horizonY: HORIZON_Y,
   baseY: PLAYER_Y,
   centerX: ROAD_LEFT + ROAD_WIDTH / 2,
+  depth: 260,
+  height: 300,
 };
 
+/** Length of one strip of road, in metres. */
+const SEGMENT = 16;
+/** How far ahead the road is drawn, in segments — out to where the fog closes.
+ * Strips past that are a fraction of a pixel tall and the colour of the haze
+ * they would be drawn into, so they are hundreds of quads a frame spent on
+ * nothing. */
+const AHEAD = 130;
 /**
- * How far the camera sits behind the player's row, measured in the pixels of
- * road travel everything in this file is scrolled by.
- *
- * Set equal to the road's on-screen height on purpose. It is what fixes the
- * rate the markings sweep past the player at: at the player's row the pattern
- * moves one pixel for every pixel of travel, which is exactly the rate the
- * traffic moves down the screen at. Any other value and the road would
- * visibly slide along underneath the cars standing on it.
+ * And how far behind. The eye sits back from the car, so without a few strips
+ * laid behind it the bottom of the screen would have no road on it at all.
  */
-const CAMERA_DEPTH = PLAYER_Y - HORIZON_Y;
+const BEHIND = 12;
 
-/**
- * Pixels of road per metre of distance travelled.
- *
- * The flat road this replaced spawned traffic at the top of the screen and
- * scrolled a pixel a metre, which gave the player 762 px of warning to read
- * the lane ahead. The horizon sits lower than the top of the screen, so
- * keeping the pixel-a-metre scroll would have quietly cut that window by a
- * fifth and made the game harder than it was tuned to be. Distance is still
- * counted in metres; this is the exchange rate into the shorter picture.
- */
-const TUNED_WARNING_PX = 762;
-export const ROAD_PX_PER_METRE = (PLAYER_Y - HORIZON_Y) / TUNED_WARNING_PX;
+/** Nearer to the eye than this and a strip's size stops meaning anything. */
+const NEAREST = -CAMERA.depth * 0.8;
 
-/** Height of one drawn band of road. Small enough that the stepping on the
- * road's edges reads as an arcade artefact rather than as a mistake. */
-const BAND_PX = 7;
-
-/**
- * Bands are only worth drawing down to here; above it the road is a wedge of
- * flat colour under the haze, which is all the eye can resolve anyway.
- */
-const MIN_BAND_SCALE = 0.05;
-
-/** One block of rumble strip, in pixels of road travel — and so its height
- * in screen pixels as it passes the player. */
-const RUMBLE_DEPTH = 34;
-/** One lane-dash cycle, half of it painted. A multiple of RUMBLE_DEPTH so the
- * two patterns share a period and the scroll offset can wrap on it. */
-const DASH_DEPTH = RUMBLE_DEPTH * 3;
-
-// All widths at the player's row, scaled down with everything else as they
-// recede.
+// Widths at the player's row, where the projection is 1:1.
 const RUMBLE_WIDTH = 12;
 const SHOULDER_WIDTH = 15;
 const LANE_LINE_WIDTH = 7;
 
+/** Segments of lane dash, then the same again of gap. */
+const DASH_SEGMENTS = 2;
+
+// Distance closes the picture down into the light the road is driving toward.
+// Doing it per strip rather than with one band over the top is what lets a
+// hill stand out of the haze instead of being wiped flat by it.
+const FOG_NEAR = 260;
+const FOG_FAR = 1900;
+const FOG_MAX = 0.94;
+const FOG_COLOR = PALETTE.sunsetLow;
+
+/** Where something standing on the road ends up on screen. */
+export interface Placement {
+  x: number;
+  y: number;
+  scale: number;
+  /** 0 in the clear, 1 lost in the haze. */
+  fog: number;
+  /**
+   * False when the road it is standing on is over the brow of a hill.
+   *
+   * Ground beyond a crest projects *lower* on the screen than the crest does —
+   * that is exactly why the strips there are not drawn — so a car standing on
+   * it would otherwise be painted in the middle of the near road, a toy-sized
+   * thing sitting on tarmac fifty metres away.
+   */
+  visible: boolean;
+}
+
 export interface Road {
-  /** Brings the road `px` pixels closer and redraws it. */
-  scroll(px: number): void;
-  /** Back to a standing start, markings and all. */
+  /** Drives `metres` further along and redraws. */
+  advance(metres: number): void;
+  /** A fresh road, back at the start line. */
   reset(): void;
+  /** Where something at depth `z`, `offsetX` from the road's centre, stands. */
+  place(z: number, offsetX: number): Placement;
+  /** How hard the road is bending under the car right now. */
+  curveHere(): number;
+  /** How far the road ahead has swung off straight, in screen pixels. */
+  sway(): number;
 }
 
 export function createRoad(scene: Phaser.Scene): Road {
   const g = scene.add.graphics().setDepth(DEPTH.backdrop + 1);
 
-  /**
-   * How far the car has come, wrapped at the marking period. Wrapped rather
-   * than left to grow because the only thing it is ever used for is which
-   * half of a cycle a band falls in, and a float that has been adding up for
-   * a ten-minute run makes a worse job of answering that.
-   */
-  let travelled = 0;
+  let track: Track = createTrack();
+  /** Metres travelled. Only ever grows; the track's ring buffer is what stops
+   * a long run from piling up. */
+  let position = 0;
 
-  const firstBandY = HORIZON_Y + MIN_BAND_SCALE * (PLAYER_Y - HORIZON_Y);
+  // The survey: one pass per frame that works out where every strip's near
+  // edge sits, so that drawing and placing both read the same answer.
+  const strips = BEHIND + AHEAD + 2;
+  /** Lateral drift of the road's centre line, in world units. */
+  const offsets = new Float64Array(strips);
+  /** Height above the ground under the camera. */
+  const rises = new Float64Array(strips);
+  /** Depth ahead of the player's row. */
+  const depths = new Float64Array(strips);
+  /**
+   * How far down the screen was still unpainted when each strip's turn came.
+   * A strip — or anything standing on it — that falls below its own line is
+   * over a brow and out of sight.
+   */
+  const clips = new Float64Array(strips);
+  let base = 0;
+  let through = 0;
+
+  const fogCache = new Map<number, number>();
+
+  /** `color` seen through `fog` of the light at the end of the road. */
+  const fogged = (color: number, fog: number): number => {
+    const step = Math.round(fog * 12);
+    const key = color * 16 + step;
+    const cached = fogCache.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const mixed = Phaser.Display.Color.Interpolate.ColorWithColor(
+      Phaser.Display.Color.IntegerToColor(color),
+      Phaser.Display.Color.IntegerToColor(FOG_COLOR),
+      12,
+      step
+    );
+    const value = Phaser.Display.Color.GetColor(mixed.r, mixed.g, mixed.b);
+    fogCache.set(key, value);
+    return value;
+  };
+
+  const fogAt = (z: number): number =>
+    Phaser.Math.Clamp((z - FOG_NEAR) / (FOG_FAR - FOG_NEAR), 0, 1) * FOG_MAX;
+
+  const survey = (): void => {
+    base = Math.floor(position / SEGMENT);
+    through = position / SEGMENT - base;
+    const groundHere =
+      track.riseAt(base) + (track.riseAt(base + 1) - track.riseAt(base)) * through;
+
+    // Outward from the car. `dx` is the road's heading and every segment's
+    // curve bends it a little further, so the centre line's drift grows with
+    // the square of the distance — which is exactly how a corner looks.
+    let x = 0;
+    let dx = -track.curveAt(base) * through;
+    for (let n = 0; n <= AHEAD + 1; n += 1) {
+      const i = n + BEHIND;
+      offsets[i] = x;
+      rises[i] = track.riseAt(base + n) - groundHere;
+      depths[i] = (base + n) * SEGMENT - position;
+      x += dx;
+      dx += track.curveAt(base + n);
+    }
+
+    // And backward, running the same walk in reverse, for the road under the
+    // car and the stretch of it behind.
+    x = 0;
+    dx = -track.curveAt(base) * through;
+    for (let n = -1; n >= -BEHIND; n -= 1) {
+      const i = n + BEHIND;
+      dx -= track.curveAt(base + n);
+      x -= dx;
+      offsets[i] = x;
+      rises[i] = track.riseAt(base + n) - groundHere;
+      depths[i] = (base + n) * SEGMENT - position;
+    }
+  };
+
+  // One set of corners, written over and over. A strip is half a dozen quads
+  // and there are a hundred strips in a frame, so building the points fresh
+  // each time would hand the collector a few thousand short-lived objects
+  // sixty times a second for no gain at all — fillPoints reads them and is
+  // done with them before this function returns.
+  const corners = [
+    new Phaser.Geom.Point(),
+    new Phaser.Geom.Point(),
+    new Phaser.Geom.Point(),
+    new Phaser.Geom.Point(),
+  ];
+
+  /**
+   * One trapezoid of road furniture, near edge to far edge.
+   *
+   * Drawn a pixel past its near edge, into the strip in front of it. Strips
+   * are laid nearest first, so that overlap lands on tarmac already painted
+   * the same colour — while leaving it out lets a hairline of verge through
+   * at every seam, and a road with a green thread across it every few
+   * centimetres is the one thing that would give the whole illusion away.
+   */
+  const quad = (
+    nearLeft: number,
+    nearRight: number,
+    nearY: number,
+    farLeft: number,
+    farRight: number,
+    farY: number
+  ): void => {
+    corners[0].setTo(nearLeft, nearY + 1);
+    corners[1].setTo(farLeft, farY);
+    corners[2].setTo(farRight, farY);
+    corners[3].setTo(nearRight, nearY + 1);
+    g.fillPoints(corners, true);
+  };
 
   const draw = (): void => {
     g.clear();
 
-    // The ground plane, in the darker of the two verge greens. Every band
-    // below paints over it, so this is only ever seen in the far distance
-    // where the bands give out.
-    g.fillStyle(PALETTE.vergeDark, 1);
-    g.fillRect(0, HORIZON_Y, WIDTH, HEIGHT - HORIZON_Y);
+    // Nothing further up the screen than this has been drawn yet; a strip that
+    // would land below it is over the brow of a hill and out of sight.
+    let clip = HEIGHT;
+    clips.fill(HEIGHT);
 
-    // The far wedge of road, from the vanishing point down to the first band
-    // worth banding. Without it the road would begin at a hard edge partway
-    // down the screen.
-    const wedgeHalf = (ROAD_WIDTH / 2) * scaleAt(PERSPECTIVE, firstBandY);
-    g.fillStyle(PALETTE.asphaltDark, 1);
-    g.fillPoints(
-      [
-        new Phaser.Geom.Point(PERSPECTIVE.centerX, HORIZON_Y),
-        new Phaser.Geom.Point(PERSPECTIVE.centerX + wedgeHalf, firstBandY + 1),
-        new Phaser.Geom.Point(PERSPECTIVE.centerX - wedgeHalf, firstBandY + 1),
-      ],
-      true
-    );
-
-    for (let y = firstBandY; y < HEIGHT; y += BAND_PX) {
-      // Sampled at the band's middle, so a band is wrong by at most half its
-      // own height rather than by all of it.
-      const middle = y + BAND_PX / 2;
-      const scale = scaleAt(PERSPECTIVE, middle);
-      const depth = depthAt(PERSPECTIVE, middle, CAMERA_DEPTH) + travelled;
-      // A seam of background between two bands is far more visible than a
-      // pixel of overlap, so every band is drawn a pixel taller than its pitch.
-      const height = Math.min(BAND_PX + 1, HEIGHT - y);
-      const light = Math.floor(depth / RUMBLE_DEPTH) % 2 === 0;
-
-      const halfRoad = (ROAD_WIDTH / 2) * scale;
-      const left = PERSPECTIVE.centerX - halfRoad;
-      const right = PERSPECTIVE.centerX + halfRoad;
-
-      if (light) {
-        g.fillStyle(PALETTE.verge, 1);
-        g.fillRect(0, y, WIDTH, height);
+    for (let n = -BEHIND; n <= AHEAD; n += 1) {
+      const i = n + BEHIND;
+      clips[i] = clip;
+      const nearZ = depths[i];
+      if (nearZ <= NEAREST) {
+        continue;
       }
+      const farZ = depths[i + 1];
+      const nearY = screenYAt(CAMERA, nearZ, rises[i]);
+      const farY = screenYAt(CAMERA, farZ, rises[i + 1]);
+      if (farY >= clip) {
+        continue;
+      }
+      if (farY < 0) {
+        break;
+      }
+      clip = farY;
 
-      // Shoulder, asphalt and rumble strips, outermost first: one fill for the
-      // shoulder either side of the road rather than two, since the asphalt
-      // goes straight over its middle.
-      const shoulder = SHOULDER_WIDTH * scale;
-      g.fillStyle(PALETTE.sand, 1);
-      g.fillRect(left - shoulder, y, halfRoad * 2 + shoulder * 2, height);
+      const index = base + n;
+      // Every other segment is the pale one. The alternation is anchored to
+      // the road rather than to the screen, so the markings sweep toward the
+      // car instead of sitting still under it.
+      const pale = (((index % 2) + 2) % 2) === 0;
+      const fog = fogAt(nearZ);
 
-      g.fillStyle(light ? PALETTE.asphalt : PALETTE.asphaltDark, 1);
-      g.fillRect(left, y, halfRoad * 2, height);
+      const nearScale = scaleAt(CAMERA, nearZ);
+      const farScale = scaleAt(CAMERA, farZ);
+      const nearX = screenXAt(CAMERA, nearZ, offsets[i]);
+      const farX = screenXAt(CAMERA, farZ, offsets[i + 1]);
+      const nearHalf = (ROAD_WIDTH / 2) * nearScale;
+      const farHalf = (ROAD_WIDTH / 2) * farScale;
 
-      const rumble = RUMBLE_WIDTH * scale;
-      g.fillStyle(light ? PALETTE.kerbRed : PALETTE.laneLine, 1);
-      g.fillRect(left, y, rumble, height);
-      g.fillRect(right - rumble, y, rumble, height);
+      // The verge runs the full width; the road is painted over its middle.
+      // This one grows the other way, out past its far edge, so that its
+      // overlap lands where the next strip's verge will cover it rather than
+      // on the tarmac of the strip in front.
+      g.fillStyle(fogged(pale ? PALETTE.verge : PALETTE.vergeDark, fog), 1);
+      g.fillRect(0, farY - 1, WIDTH, nearY - farY + 1);
 
-      // Lane dashes, painted for the first half of each cycle.
-      if (depth % DASH_DEPTH < DASH_DEPTH / 2) {
-        g.fillStyle(PALETTE.laneLine, 0.9);
-        const lineWidth = LANE_LINE_WIDTH * scale;
+      // Shoulders, in one piece under the road rather than two beside it.
+      const nearShoulder = SHOULDER_WIDTH * nearScale;
+      const farShoulder = SHOULDER_WIDTH * farScale;
+      g.fillStyle(fogged(PALETTE.sand, fog), 1);
+      quad(
+        nearX - nearHalf - nearShoulder,
+        nearX + nearHalf + nearShoulder,
+        nearY,
+        farX - farHalf - farShoulder,
+        farX + farHalf + farShoulder,
+        farY
+      );
+
+      g.fillStyle(fogged(pale ? PALETTE.asphalt : PALETTE.asphaltDark, fog), 1);
+      quad(nearX - nearHalf, nearX + nearHalf, nearY, farX - farHalf, farX + farHalf, farY);
+
+      const nearRumble = RUMBLE_WIDTH * nearScale;
+      const farRumble = RUMBLE_WIDTH * farScale;
+      g.fillStyle(fogged(pale ? PALETTE.kerbRed : PALETTE.laneLine, fog), 1);
+      quad(
+        nearX - nearHalf,
+        nearX - nearHalf + nearRumble,
+        nearY,
+        farX - farHalf,
+        farX - farHalf + farRumble,
+        farY
+      );
+      quad(
+        nearX + nearHalf - nearRumble,
+        nearX + nearHalf,
+        nearY,
+        farX + farHalf - farRumble,
+        farX + farHalf,
+        farY
+      );
+
+      if ((((index % (DASH_SEGMENTS * 2)) + DASH_SEGMENTS * 2) % (DASH_SEGMENTS * 2)) < DASH_SEGMENTS) {
+        g.fillStyle(fogged(PALETTE.laneLine, fog), 0.9);
+        const nearLine = (LANE_LINE_WIDTH * nearScale) / 2;
+        const farLine = (LANE_LINE_WIDTH * farScale) / 2;
         for (let boundary = 1; boundary < LANE_COUNT; boundary += 1) {
-          const x = projectX(PERSPECTIVE, ROAD_LEFT + (ROAD_WIDTH * boundary) / LANE_COUNT, middle);
-          g.fillRect(x - lineWidth / 2, y, lineWidth, height);
+          const lane = (ROAD_WIDTH * boundary) / LANE_COUNT - ROAD_WIDTH / 2;
+          const nearLaneX = nearX + lane * nearScale;
+          const farLaneX = farX + lane * farScale;
+          quad(
+            nearLaneX - nearLine,
+            nearLaneX + nearLine,
+            nearY,
+            farLaneX - farLine,
+            farLaneX + farLine,
+            farY
+          );
         }
       }
     }
   };
 
+  const place = (z: number, offsetX: number): Placement => {
+    // Which strip the thing is standing on, and how far through it.
+    const along = z / SEGMENT + through;
+    const i = Phaser.Math.Clamp(Math.floor(along) + BEHIND, 0, strips - 2);
+    const t = Phaser.Math.Clamp(along + BEHIND - i, 0, 1);
+    const offset = offsets[i] + (offsets[i + 1] - offsets[i]) * t;
+    const rise = rises[i] + (rises[i + 1] - rises[i]) * t;
+    const y = screenYAt(CAMERA, z, rise);
+
+    return {
+      x: screenXAt(CAMERA, z, offsetX + offset),
+      y,
+      scale: scaleAt(CAMERA, z),
+      fog: fogAt(z),
+      visible: y <= clips[i],
+    };
+  };
+
+  survey();
   draw();
 
   return {
-    scroll(px: number): void {
-      travelled = (travelled + px) % DASH_DEPTH;
+    advance(metres: number): void {
+      position += metres;
+      survey();
       draw();
     },
+
     reset(): void {
-      travelled = 0;
+      track = createTrack();
+      position = 0;
+      survey();
       draw();
+    },
+
+    place,
+
+    curveHere(): number {
+      return track.curveAt(base);
+    },
+
+    sway(): number {
+      // Read off the road itself rather than kept as a running total: a total
+      // would drift, and this cannot — it is zero whenever the road ahead is
+      // straight, whatever the car did to get here.
+      return place(1400, 0).x - CAMERA.centerX;
     },
   };
 }
