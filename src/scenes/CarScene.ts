@@ -365,7 +365,7 @@ export class CarScene extends Phaser.Scene {
     // this way preserves the real order of the two movements; a single check
     // against the union of both spans would report phantom hits on a car the
     // player had already cleared.
-    const playerRect = rectAt(this.player.x, 0, CAR_WIDTH, CAR_LENGTH);
+    const playerRect = rectAt(this.player.x, CAR_LENGTH / 2, CAR_WIDTH, CAR_LENGTH);
     const steerPath = sweepX(playerRect, this.prevPlayerX - CAR_WIDTH / 2);
     let crashed = this.traffic.some((car) => intersects(steerPath, this.footprint(car)));
 
@@ -631,10 +631,20 @@ export class CarScene extends Phaser.Scene {
    * by its length. Lateral offsets are read at the player's row, where the
    * road is full width, so a lane centre is the same number here as it is on
    * screen when the car reaches it.
+   *
+   * The patch runs forward from the thing's depth rather than being centred
+   * on it, because its depth is where it meets the road — the foot of the
+   * card, the face turned toward us — and its body is the road beyond that,
+   * out of sight behind the card. Centring instead makes contact depend on
+   * the length of whatever is being hit: a pickup, being shorter than a car,
+   * had to bury itself five pixels into the bonnet before it counted. Run
+   * both patches forward from their feet and contact is always the same
+   * moment, the one the player can see — the far thing's feet reaching the
+   * top of the player's own card.
    */
   private footprint(thing: RoadThing): Rect {
     const x = laneCenterX(thing.lane, LANE_COUNT, ROAD_LEFT, ROAD_WIDTH);
-    return rectAt(x, thing.z, thing.width, thing.length);
+    return rectAt(x, thing.z + thing.length / 2, thing.width, thing.length);
   }
 
   /** Cosmetic readout only — the metres-per-second scaled into km/h. */
